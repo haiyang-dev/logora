@@ -1,0 +1,1 @@
+[https://github.com/OpenSPG/KAG/blob/master/README_cn.md](https://github.com/OpenSPG/KAG/blob/master/README_cn.md)

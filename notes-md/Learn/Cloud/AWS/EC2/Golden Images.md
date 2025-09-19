@@ -1,0 +1,1 @@
+https://refinitiv.sharepoint.com/sites/CloudCentral/SitePages/AWS-Golden-Images.aspx

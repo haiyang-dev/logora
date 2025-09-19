@@ -1,0 +1,1 @@
+spring app启动时会自动加载bpmn下的bpmn文件，并且部署到camunda platform上, [http://localhost:8080/   demo/demo](http://localhost:8080/camunda/app/admin/default/#/)
