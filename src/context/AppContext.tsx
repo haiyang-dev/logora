@@ -10,7 +10,8 @@ type AppAction =
   | { type: 'UPDATE_NOTE'; payload: { id: string; updates: Partial<Note> } }
   | { type: 'DELETE_NOTE'; payload: string }
   | { type: 'TOGGLE_FOLDER'; payload: string }
-  | { type: 'LOAD_NOTES'; payload: Record<string, Note> };
+  | { type: 'LOAD_NOTES'; payload: Record<string, Note> }
+  | { type: 'LOAD_FILE_SYSTEM_NOTES'; payload: any[] }; // 新增动作类型用于加载文件系统笔记
 
 // 初始状态
 const initialState: AppState = {
@@ -56,10 +57,15 @@ function appReducer(state: AppState, action: AppAction): AppState {
       const note = state.notes[action.payload.id];
       if (!note) return state;
       
+      // 如果action.payload.updates中已经提供了updatedAt，则使用它，否则使用当前时间
+      const updatedAt = action.payload.updates.updatedAt !== undefined ? 
+        action.payload.updates.updatedAt : 
+        new Date();
+      
       const updatedNote = {
         ...note,
         ...action.payload.updates,
-        updatedAt: new Date(),
+        updatedAt,
       };
       
       return {
@@ -101,6 +107,51 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         notes: action.payload,
       };
+    
+    case 'LOAD_FILE_SYSTEM_NOTES': {
+      // 将文件系统笔记转换为应用笔记格式
+      const convertToNotes = (items: any[], parentId?: string): Record<string, Note> => {
+        const notes: Record<string, Note> = {};
+        
+        items.forEach(item => {
+          const id = item.id;
+          const now = new Date();
+          
+          // 使用文件的最后修改时间（如果存在）
+          const updatedAt = item.updatedAt ? new Date(item.updatedAt) : now;
+          
+          // 修复：不要为文件设置默认内容，而是在需要时加载
+          const note: Note = {
+            id,
+            title: item.title,
+            content: item.isFolder ? null : undefined, // 文件的内容在需要时才加载
+            parentId,
+            children: item.isFolder ? [] : undefined,
+            createdAt: now,
+            updatedAt,
+            isFolder: item.isFolder,
+            filePath: item.filePath
+          };
+          
+          notes[id] = note;
+          
+          // 递归处理子项
+          if (item.children && item.children.length > 0) {
+            const childNotes = convertToNotes(item.children, id);
+            Object.assign(notes, childNotes);
+          }
+        });
+        
+        return notes;
+      };
+      
+      const fileSystemNotes = convertToNotes(action.payload);
+      
+      return {
+        ...state,
+        notes: fileSystemNotes,
+      };
+    }
     
     default:
       return state;

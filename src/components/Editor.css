@@ -80,11 +80,46 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
+}
+
+.save-button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.save-button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.save-button:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.auto-save-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  color: #6c757d;
+  cursor: pointer;
+}
+
+.auto-save-toggle input {
+  margin: 0;
 }
 
 .note-date {
   font-size: 12px;
   color: #6c757d;
+  white-space: nowrap;
 }
 
 .editor-content {
@@ -124,5 +159,11 @@
   
   .editor-content {
     padding: 0 16px 16px 16px;
+  }
+  
+  .note-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
   }
 }

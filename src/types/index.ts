@@ -8,6 +8,7 @@ export interface Note {
   createdAt: Date;
   updatedAt: Date;
   isFolder: boolean;
+  filePath?: string; // 用于关联本地文件系统中的文件路径
 }
 
 export interface NoteTreeItem {
@@ -18,10 +19,20 @@ export interface NoteTreeItem {
   children?: NoteTreeItem[];
   level: number;
   isExpanded?: boolean;
+  filePath?: string; // 用于关联本地文件系统中的文件路径
 }
 
 export interface AppState {
   notes: Record<string, Note>;
   selectedNoteId: string | null;
   expandedFolders: Set<string>;
+}
+
+// 本地文件系统笔记结构
+export interface FileSystemNote {
+  id: string;
+  title: string;
+  isFolder: boolean;
+  filePath?: string;
+  children?: FileSystemNote[];
 }

@@ -3,23 +3,28 @@ import { AppProvider, useApp } from './context/AppContext';
 import { Sidebar } from './components/Sidebar';
 import { Editor } from './components/Editor';
 import { StorageManager } from './utils/storage';
+import { FileSystemManager } from './utils/fileSystem';
 import './App.css';
 
 function AppContent() {
   const { state, dispatch } = useApp();
 
-  // 初始化时加载保存的笔记
+  // 初始化时加载文件系统中的笔记
   useEffect(() => {
-    const savedNotes = StorageManager.loadNotes();
-    dispatch({ type: 'LOAD_NOTES', payload: savedNotes });
-  }, [dispatch]);
+    const loadFileSystemNotes = async () => {
+      try {
+        const fileSystemNotes = await FileSystemManager.getAllNotes();
+        dispatch({ type: 'LOAD_FILE_SYSTEM_NOTES', payload: fileSystemNotes });
+      } catch (error) {
+        console.error('Failed to load file system notes:', error);
+        // 如果无法加载文件系统笔记，则加载本地存储的笔记
+        const savedNotes = StorageManager.loadNotes();
+        dispatch({ type: 'LOAD_NOTES', payload: savedNotes });
+      }
+    };
 
-  // 当笔记发生变化时自动保存
-  useEffect(() => {
-    if (Object.keys(state.notes).length > 0) {
-      StorageManager.saveNotes(state.notes);
-    }
-  }, [state.notes]);
+    loadFileSystemNotes();
+  }, [dispatch]);
 
   return (
     <div className="app">

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import type { Note, NoteTreeItem } from '../types';
 import { useApp } from '../context/AppContext';
+import { FileSystemManager } from '../utils/fileSystem';
 import './Sidebar.css';
 
 interface SidebarProps {
@@ -17,6 +18,7 @@ export function Sidebar({ className }: SidebarProps) {
     y: number;
     noteId: string;
   } | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // 构建树形结构
   const buildTree = (notes: Record<string, Note>): NoteTreeItem[] => {
@@ -36,6 +38,7 @@ export function Sidebar({ className }: SidebarProps) {
         children: children.length > 0 ? children : undefined,
         level,
         isExpanded: state.expandedFolders.has(note.id),
+        filePath: note.filePath,
       };
     };
     
@@ -50,7 +53,8 @@ export function Sidebar({ className }: SidebarProps) {
 
   const treeItems = buildTree(state.notes);
 
-  const handleCreateItem = () => {
+  // 处理创建新项目
+  const handleCreateItem = useCallback(() => {
     if (!newItemTitle.trim()) return;
     
     dispatch({
@@ -63,31 +67,48 @@ export function Sidebar({ className }: SidebarProps) {
     
     setNewItemTitle('');
     setIsCreating(false);
-  };
+  }, [newItemTitle, createType, dispatch]);
 
-  const handleSelectNote = (noteId: string) => {
+  // 处理选择笔记
+  const handleSelectNote = useCallback((noteId: string) => {
     const note = state.notes[noteId];
     if (note && !note.isFolder) {
       dispatch({ type: 'SELECT_NOTE', payload: noteId });
     } else if (note && note.isFolder) {
       dispatch({ type: 'TOGGLE_FOLDER', payload: noteId });
     }
-  };
+  }, [state.notes, dispatch]);
 
-  const handleRightClick = (e: React.MouseEvent, noteId: string) => {
+  // 处理右键菜单
+  const handleRightClick = useCallback((e: React.MouseEvent, noteId: string) => {
     e.preventDefault();
     setContextMenu({
       x: e.clientX,
       y: e.clientY,
       noteId,
     });
-  };
+  }, []);
 
-  const handleDeleteNote = (noteId: string) => {
+  // 处理删除笔记
+  const handleDeleteNote = useCallback((noteId: string) => {
     dispatch({ type: 'DELETE_NOTE', payload: noteId });
     setContextMenu(null);
-  };
+  }, [dispatch]);
 
+  // 处理搜索
+  const handleSearch = useCallback(async () => {
+    if (!searchQuery.trim()) return;
+    
+    try {
+      const searchResults = await FileSystemManager.searchNotes(searchQuery);
+      // 这里可以更新UI以显示搜索结果
+      console.log('Search results:', searchResults);
+    } catch (error) {
+      console.error('Search failed:', error);
+    }
+  }, [searchQuery]);
+
+  // 渲染树形项目
   const renderTreeItem = (item: NoteTreeItem) => {
     const isSelected = state.selectedNoteId === item.id;
     const hasChildren = item.children && item.children.length > 0;
@@ -148,6 +169,22 @@ export function Sidebar({ className }: SidebarProps) {
             📁
           </button>
         </div>
+      </div>
+      
+      {/* 搜索框 */}
+      <div className="search-container">
+        <input
+          type="text"
+          placeholder="搜索笔记..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              handleSearch();
+            }
+          }}
+        />
+        <button onClick={handleSearch}>搜索</button>
       </div>
       
       {isCreating && (

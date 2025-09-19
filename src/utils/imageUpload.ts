@@ -1,0 +1,31 @@
+// 图片上传工具类
+export class ImageUploadManager {
+  // API 基础路径
+  private static readonly API_BASE = 'http://localhost:3001';
+
+  // 上传图片到服务器
+  static async uploadImage(file: File, notePath: string): Promise<string> {
+    try {
+      // 创建 FormData 对象
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('notePath', notePath);
+
+      // 发送上传请求
+      const response = await fetch(`${this.API_BASE}/api/upload-image`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.url; // 返回图片的URL
+    } catch (error) {
+      console.error('图片上传失败:', error);
+      throw error;
+    }
+  }
+}
