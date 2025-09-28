@@ -14,10 +14,11 @@ type BundledLanguage =
   "go" | "rust" | "html" | "css" | "sql" | "ruby" | "php" | "swift" | "kotlin" | "r" | "scala" | 
   "perl" | "lua" |
   // 额外支持的语言
-  "vue" | "json" | "xml" | "bash" | "shellscript" | "shell" | "yaml" | "yml" | "markdown" | "md" |
-  "less" | "scss" | "sass" | "graphql" | "docker" | "dockerfile" | "make" | "makefile";
+  "vue" | "json" | "xml" | "bash" | "shellscript" | "shell" | "yaml" | "yml" |
+  "less" | "scss" | "sass" | "graphql" | "docker" | "dockerfile" | "make" | "makefile" |
+  "markdown" | "md";
 
-type BundledTheme = "light-plus" | "dark-plus";
+type BundledTheme = "github-light" | "github-dark" | "light-plus" | "dark-plus";
 
 type Highlighter = HighlighterGeneric<BundledLanguage, BundledTheme>;
 
@@ -68,6 +69,8 @@ const bundledLanguages = {
 } as Record<BundledLanguage, DynamicImportLanguageRegistration>;
 
 const bundledThemes = {
+  "github-light": () => import("@shikijs/themes/github-light-default"),
+  "github-dark": () => import("@shikijs/themes/github-dark-default"),
   "light-plus": () => import("@shikijs/themes/light-plus"),
   "dark-plus": () => import("@shikijs/themes/dark-plus"),
 } as Record<BundledTheme, DynamicImportThemeRegistration>;

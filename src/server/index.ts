@@ -3,7 +3,6 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import searchEngine from './search.js';
-import { markdownToBlockNote, blockNoteToMarkdown } from './markdownParser.js';
 import multer from 'multer';
 import type { Request, Response } from 'express';
 
@@ -11,31 +10,39 @@ import type { Request, Response } from 'express';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 配置 notes-md 目录路径
-const NOTES_DIR = path.join(__dirname, '../../notes-md');
+// 配置 workspace 目录路径（独立的workspace文件夹）
+const WORKSPACE_DIR = path.join(__dirname, '../../workspace');
 
-// 配置静态资源目录路径
-const PUBLIC_DIR = path.join(__dirname, '../../public');
+// 配置资源目录路径
+const RESOURCES_DIR = path.join(WORKSPACE_DIR, '.resources');
 
-// 确保 notes-md 目录存在
-if (!fs.existsSync(NOTES_DIR)) {
-  fs.mkdirSync(NOTES_DIR, { recursive: true });
+// 配置图片目录路径
+const IMAGES_DIR = path.join(RESOURCES_DIR, 'images');
+
+// 确保必要的目录存在
+if (!fs.existsSync(WORKSPACE_DIR)) {
+  fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
+}
+
+if (!fs.existsSync(RESOURCES_DIR)) {
+  fs.mkdirSync(RESOURCES_DIR, { recursive: true });
+}
+
+if (!fs.existsSync(IMAGES_DIR)) {
+  fs.mkdirSync(IMAGES_DIR, { recursive: true });
 }
 
 // 配置 multer 中间件用于处理文件上传
 const storage = multer.diskStorage({
-  destination: (req: Request, file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
-    // 默认保存到 public 目录下的 uploads 文件夹
-    const uploadDir = path.join(PUBLIC_DIR, 'uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
+  destination: (req: Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
+    // 所有上传的图片都保存到 .resources/images 目录
+    cb(null, IMAGES_DIR);
   },
-  filename: (req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
-    // 生成唯一的文件名
+  filename: (_req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
+    // 生成唯一的文件名，保持原始扩展名
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
+    const filename = uniqueSuffix + path.extname(file.originalname);
+    cb(null, filename);
   }
 });
 
@@ -76,25 +83,101 @@ app.use(express.json({ limit: '10mb' })); // 增加请求体大小限制
 app.use(express.urlencoded({ extended: true }));
 
 // 静态资源服务 - 为图片等资源提供服务
-app.use('/assets', express.static(PUBLIC_DIR));
-app.use('/notes-assets', express.static(NOTES_DIR));
-
-// 为笔记目录中的images文件夹提供静态资源服务
-// 这样可以直接通过/images/文件名访问图片
-app.use('/images', express.static(NOTES_DIR, {
-  setHeaders: (res, path) => {
-    // 设置适当的缓存头
+app.use('/assets', express.static(path.join(__dirname, '../../public'), {
+  setHeaders: (res, filePath) => {
+    // 设置适当的MIME类型
+    if (filePath.endsWith('.svg')) {
+      res.setHeader('Content-Type', 'image/svg+xml');
+    } else if (filePath.endsWith('.png')) {
+      res.setHeader('Content-Type', 'image/png');
+    } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+      res.setHeader('Content-Type', 'image/jpeg');
+    } else if (filePath.endsWith('.gif')) {
+      res.setHeader('Content-Type', 'image/gif');
+    } else if (filePath.endsWith('.webp')) {
+      res.setHeader('Content-Type', 'image/webp');
+    }
+    // 设置缓存头
     res.setHeader('Cache-Control', 'public, max-age=3600');
   }
 }));
 
+// 为.resources目录提供静态资源服务
+app.use('/resources', express.static(RESOURCES_DIR));
+
 // API 路由：获取所有笔记文件列表
-app.get('/api/notes', (req: Request, res: Response) => {
+app.get('/api/notes', (_req: Request, res: Response) => {
   try {
-    const notes = getAllNotes(NOTES_DIR);
+    const notes = getAllNotes(WORKSPACE_DIR);
     res.json(notes);
   } catch (error) {
     res.status(500).json({ error: 'Failed to retrieve notes' });
+  }
+});
+
+// API 路由：重命名笔记文件（必须在通用的 :filePath 路由之前定义）
+app.post('/api/notes/rename', async (req: Request, res: Response) => {
+  try {
+    const { oldPath, newPath } = req.body;
+    
+    console.log('重命名请求:', { oldPath, newPath });
+    
+    // 将URL中的正斜杠转换为系统路径分隔符
+    const systemOldPath = oldPath.replace(/\//g, path.sep);
+    const systemNewPath = newPath.replace(/\//g, path.sep);
+    
+    // 确保文件路径在 workspace 目录内，防止路径遍历攻击
+    const fullOldPath = path.join(WORKSPACE_DIR, systemOldPath);
+    const fullNewPath = path.join(WORKSPACE_DIR, systemNewPath);
+    
+    console.log('完整旧路径:', fullOldPath);
+    console.log('完整新路径:', fullNewPath);
+    console.log('WORKSPACE_DIR:', WORKSPACE_DIR);
+    
+    // 使用 path.resolve 确保路径正确解析
+    const resolvedOldPath = path.resolve(fullOldPath);
+    const resolvedNewPath = path.resolve(fullNewPath);
+    const resolvedWorkspaceDir = path.resolve(WORKSPACE_DIR);
+    
+    console.log('解析后的旧路径:', resolvedOldPath);
+    console.log('解析后的新路径:', resolvedNewPath);
+    console.log('解析后的WORKSPACE_DIR:', resolvedWorkspaceDir);
+    console.log('旧路径验证:', resolvedOldPath.startsWith(resolvedWorkspaceDir));
+    console.log('新路径验证:', resolvedNewPath.startsWith(resolvedWorkspaceDir));
+    
+    if (!resolvedOldPath.startsWith(resolvedWorkspaceDir) || !resolvedNewPath.startsWith(resolvedWorkspaceDir)) {
+      console.log('路径验证失败');
+      return res.status(400).json({ error: 'Invalid file path' });
+    }
+    
+    // 检查原文件是否存在
+    if (!fs.existsSync(resolvedOldPath)) {
+      console.log('原文件不存在:', resolvedOldPath);
+      return res.status(404).json({ error: 'Note not found' });
+    }
+    
+    // 确保目标目录存在
+    const newDirPath = path.dirname(resolvedNewPath);
+    if (!fs.existsSync(newDirPath)) {
+      console.log('创建目录:', newDirPath);
+      fs.mkdirSync(newDirPath, { recursive: true });
+    }
+    
+    // 重命名文件
+    console.log('重命名文件:', resolvedOldPath, '->', resolvedNewPath);
+    fs.renameSync(resolvedOldPath, resolvedNewPath);
+    
+    // 重建搜索索引
+    try {
+      await searchEngine.buildIndex();
+    } catch (indexError) {
+      console.warn('Failed to rebuild search index after note rename:', indexError);
+    }
+    
+    res.json({ success: true, message: 'Note renamed successfully' });
+  } catch (error) {
+    console.error('Failed to rename note:', error);
+    res.status(500).json({ error: 'Failed to rename note' });
   }
 });
 
@@ -102,31 +185,39 @@ app.get('/api/notes', (req: Request, res: Response) => {
 app.get('/api/notes/:filePath', async (req: Request, res: Response) => {
   try {
     const filePath = decodeURIComponent(req.params.filePath);
+    
+    // 将URL中的正斜杠转换为系统路径分隔符
+    const systemPath = filePath.replace(/\//g, path.sep);
+    
+    // 确保文件路径在 workspace 目录内，防止路径遍历攻击
+    const fullPath = path.join(WORKSPACE_DIR, systemPath);
+    
     console.log('请求的文件路径:', filePath);
-    
-    // 确保文件路径在 notes-md 目录内，防止路径遍历攻击
-    const fullPath = path.join(NOTES_DIR, filePath);
+    console.log('系统路径:', systemPath);
     console.log('完整文件路径:', fullPath);
+    console.log('WORKSPACE_DIR:', WORKSPACE_DIR);
+    console.log('路径验证:', fullPath.startsWith(WORKSPACE_DIR));
     
-    if (!fullPath.startsWith(NOTES_DIR)) {
+    if (!fullPath.startsWith(WORKSPACE_DIR)) {
       return res.status(400).json({ error: 'Invalid file path' });
     }
     
-    if (!fs.existsSync(fullPath)) {
-      console.log('文件不存在:', fullPath);
-      return res.status(404).json({ error: 'Note not found' });
+    // 直接读取JSON文件
+    if (fs.existsSync(fullPath)) {
+      // 如果文件存在，直接读取并返回
+      console.log('找到JSON文件，直接加载编辑器状态');
+      const jsonContent = fs.readFileSync(fullPath, { encoding: 'utf8' });
+      const blocks = JSON.parse(jsonContent);
+      res.json({ 
+        content: blocks
+      });
+      return;
     }
     
-    const content = fs.readFileSync(fullPath, 'utf8');
-    console.log('原始 Markdown 内容:', content);
-    
-    // 将Markdown内容转换为BlockNote格式
-    const blockNoteContent = await markdownToBlockNote(content);
-    console.log('转换后的 BlockNote 内容:', JSON.stringify(blockNoteContent, null, 2));
-    
+    // 如果不存在，返回空内容
+    console.log('文件不存在:', fullPath);
     res.json({ 
-      content: blockNoteContent,
-      rawContent: content 
+      content: []
     });
   } catch (error) {
     console.error('Failed to read note:', error);
@@ -137,30 +228,206 @@ app.get('/api/notes/:filePath', async (req: Request, res: Response) => {
 // API 路由：保存笔记内容
 app.post('/api/notes/:filePath', async (req: Request, res: Response) => {
   try {
-    const filePath = req.params.filePath;
+    const filePath = decodeURIComponent(req.params.filePath);
     const { content } = req.body;
     
-    // 确保文件路径在 notes-md 目录内，防止路径遍历攻击
-    const fullPath = path.join(NOTES_DIR, filePath);
+    console.log('收到保存请求:', { filePath, contentLength: content?.length || 0 });
     
-    if (!fullPath.startsWith(NOTES_DIR)) {
+    // 将URL中的正斜杠转换为系统路径分隔符
+    const systemPath = filePath.replace(/\//g, path.sep);
+    
+    // 确保文件路径在 workspace 目录内，防止路径遍历攻击
+    const fullPath = path.join(WORKSPACE_DIR, systemPath);
+    
+    console.log('完整文件路径:', fullPath);
+    console.log('路径验证:', fullPath.startsWith(WORKSPACE_DIR));
+    
+    if (!fullPath.startsWith(WORKSPACE_DIR)) {
       return res.status(400).json({ error: 'Invalid file path' });
     }
     
     // 确保目录存在
     const dirPath = path.dirname(fullPath);
     if (!fs.existsSync(dirPath)) {
+      console.log('创建目录:', dirPath);
       fs.mkdirSync(dirPath, { recursive: true });
     }
     
-    // 将BlockNote格式转换为Markdown格式再保存
-    const markdownContent = await blockNoteToMarkdown(content);
+    // 验证内容
+    if (!content || !Array.isArray(content)) {
+      console.warn('无效的内容格式');
+      return res.status(400).json({ error: 'Invalid content format' });
+    }
     
-    fs.writeFileSync(fullPath, markdownContent, 'utf8');
+    // 直接保存文件，允许覆盖已存在的文件
+    fs.writeFileSync(fullPath, JSON.stringify(content, null, 2), 'utf8');
+    console.log('JSON状态文件保存成功:', fullPath);
+    
     res.json({ success: true });
   } catch (error) {
     console.error('Failed to save note:', error);
     res.status(500).json({ error: 'Failed to save note' });
+  }
+});
+
+// API 路由：删除笔记文件
+app.delete('/api/notes/:filePath', async (req: Request, res: Response) => {
+  try {
+    const filePath = decodeURIComponent(req.params.filePath);
+    
+    // 将URL中的正斜杠转换为系统路径分隔符
+    const systemPath = filePath.replace(/\//g, path.sep);
+    
+    // 确保文件路径在 workspace 目录内，防止路径遍历攻击
+    const fullPath = path.join(WORKSPACE_DIR, systemPath);
+    
+    if (!fullPath.startsWith(WORKSPACE_DIR)) {
+      return res.status(400).json({ error: 'Invalid file path' });
+    }
+    
+    // 检查文件是否存在
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: 'Note not found' });
+    }
+    
+    // 删除文件
+    fs.unlinkSync(fullPath);
+    
+    // 重建搜索索引
+    try {
+      await searchEngine.buildIndex();
+    } catch (indexError) {
+      console.warn('Failed to rebuild search index after deletion:', indexError);
+    }
+    
+    res.json({ success: true, message: 'Note deleted successfully' });
+  } catch (error) {
+    console.error('Failed to delete note:', error);
+    res.status(500).json({ error: 'Failed to delete note' });
+  }
+});
+
+// API 路由：服务资源文件
+app.get('/api/resource/:fileName', (req: Request, res: Response) => {
+  try {
+    const fileName = req.params.fileName;
+    
+    // 构建资源文件的完整路径
+    const resourcePath = path.join(RESOURCES_DIR, fileName);
+    
+    // 安全检查 - 确保路径在RESOURCES_DIR内
+    if (!resourcePath.startsWith(RESOURCES_DIR)) {
+      return res.status(400).json({ error: 'Invalid resource path' });
+    }
+    
+    // 检查文件是否存在
+    if (!fs.existsSync(resourcePath)) {
+      console.log('资源文件不存在:', resourcePath);
+      return res.status(404).json({ error: 'Resource not found' });
+    }
+    
+    // 设置正确的MIME类型
+    const ext = path.extname(fileName).toLowerCase();
+    let contentType = 'application/octet-stream'; // 默认
+    
+    if (ext === '.png') {
+      contentType = 'image/png';
+    } else if (ext === '.jpg' || ext === '.jpeg') {
+      contentType = 'image/jpeg';
+    } else if (ext === '.gif') {
+      contentType = 'image/gif';
+    } else if (ext === '.webp') {
+      contentType = 'image/webp';
+    } else if (ext === '.svg') {
+      contentType = 'image/svg+xml';
+    } else if (ext === '.pdf') {
+      contentType = 'application/pdf';
+    }
+    
+    // 设置响应头
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    // 发送文件
+    res.sendFile(resourcePath);
+    
+  } catch (error) {
+    console.error('资源访问失败:', error);
+    res.status(500).json({ error: 'Failed to serve resource' });
+  }
+});
+
+// API 路由：代理外部图片
+app.get('/api/proxy-image', (req: Request, res: Response) => {
+  try {
+    const imageUrl = req.query.url as string;
+    
+    if (!imageUrl) {
+      return res.status(400).json({ error: 'URL parameter is required' });
+    }
+    
+    // 验证URL格式
+    try {
+      new URL(imageUrl);
+    } catch {
+      return res.status(400).json({ error: 'Invalid URL format' });
+    }
+    
+    // 只允许HTTPS图片URL，提高安全性
+    if (!imageUrl.startsWith('https://')) {
+      return res.status(400).json({ error: 'Only HTTPS URLs are allowed' });
+    }
+    
+    // 使用fetch获取外部图片
+    fetch(imageUrl)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        // 设置正确的Content-Type
+        const contentType = response.headers.get('content-type') || 'image/png';
+        res.setHeader('Content-Type', contentType);
+        
+        // 设置缓存头
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        
+        // 转换为缓冲区然后发送
+        return response.arrayBuffer();
+      })
+      .then(buffer => {
+        res.send(Buffer.from(buffer));
+      })
+      .catch(error => {
+        console.error('代理图片失败:', error);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to fetch external image', details: error.message });
+        }
+      });
+    
+  } catch (error) {
+    console.error('代理图片请求失败:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// API 路由：测试图片访问
+app.get('/api/test-image', (_req: Request, res: Response) => {
+  try {
+    const testImagePath = path.join(__dirname, '../../public/uploads/test-image.svg');
+    
+    if (fs.existsSync(testImagePath)) {
+      const content = fs.readFileSync(testImagePath, 'utf8');
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.send(content);
+    } else {
+      res.status(404).json({ error: 'Test image not found' });
+    }
+  } catch (error) {
+    console.error('测试图片访问失败:', error);
+    res.status(500).json({ error: 'Failed to access test image' });
   }
 });
 
@@ -171,11 +438,8 @@ app.post('/api/upload-image', upload.single('image'), (req: Request, res: Respon
       return res.status(400).json({ error: 'No file uploaded' });
     }
     
-    // 获取笔记路径（可选）
-    const notePath = req.body.notePath || '';
-    
-    // 构建图片访问URL
-    const imageUrl = `/assets/uploads/${req.file.filename}`;
+    // 构建相对路径的图片URL（用于在编辑器中显示）
+    const imageUrl = `/resources/images/${req.file.filename}`;
     
     res.json({ 
       success: true, 
@@ -218,36 +482,176 @@ app.post('/api/search/rebuild', async (_req: Request, res: Response) => {
   }
 });
 
+// API 路由：创建文件夹
+app.post('/api/folders', async (req: Request, res: Response) => {
+  try {
+    const { folderPath } = req.body;
+    
+    // 确保文件夹路径在 workspace 目录内，防止路径遍历攻击
+    const fullFolderPath = path.join(WORKSPACE_DIR, folderPath);
+    
+    if (!fullFolderPath.startsWith(WORKSPACE_DIR)) {
+      return res.status(400).json({ error: 'Invalid folder path' });
+    }
+    
+    // 创建文件夹
+    fs.mkdirSync(fullFolderPath, { recursive: true });
+    
+    res.json({ success: true, message: 'Folder created successfully' });
+  } catch (error) {
+    console.error('Failed to create folder:', error);
+    res.status(500).json({ error: 'Failed to create folder' });
+  }
+});
+
+// API 路由：删除文件夹
+app.delete('/api/folders', async (req: Request, res: Response) => {
+  try {
+    const { folderPath } = req.body;
+    
+    // 确保文件夹路径在 workspace 目录内，防止路径遍历攻击
+    const fullFolderPath = path.join(WORKSPACE_DIR, folderPath);
+    
+    if (!fullFolderPath.startsWith(WORKSPACE_DIR)) {
+      return res.status(400).json({ error: 'Invalid folder path' });
+    }
+    
+    // 检查文件夹是否存在
+    if (!fs.existsSync(fullFolderPath)) {
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+    
+    // 检查是否是目录
+    const stat = fs.statSync(fullFolderPath);
+    if (!stat.isDirectory()) {
+      return res.status(400).json({ error: 'Path is not a folder' });
+    }
+    
+    // 删除文件夹及其所有内容
+    fs.rmSync(fullFolderPath, { recursive: true, force: true });
+    
+    // 重建搜索索引
+    try {
+      await searchEngine.buildIndex();
+    } catch (indexError) {
+      console.warn('Failed to rebuild search index after folder deletion:', indexError);
+    }
+    
+    res.json({ success: true, message: 'Folder deleted successfully' });
+  } catch (error) {
+    console.error('Failed to delete folder:', error);
+    res.status(500).json({ error: 'Failed to delete folder' });
+  }
+});
+
+// API 路由：重命名文件夹
+app.post('/api/folders/rename', async (req: Request, res: Response) => {
+  try {
+    const { oldPath, newPath } = req.body;
+    
+    // 确保文件夹路径在 workspace 目录内，防止路径遍历攻击
+    const fullOldPath = path.join(WORKSPACE_DIR, oldPath);
+    const fullNewPath = path.join(WORKSPACE_DIR, newPath);
+    
+    if (!fullOldPath.startsWith(WORKSPACE_DIR) || !fullNewPath.startsWith(WORKSPACE_DIR)) {
+      return res.status(400).json({ error: 'Invalid folder path' });
+    }
+    
+    // 检查原文件夹是否存在
+    if (!fs.existsSync(fullOldPath)) {
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+    
+    // 检查是否是目录
+    const stat = fs.statSync(fullOldPath);
+    if (!stat.isDirectory()) {
+      return res.status(400).json({ error: 'Path is not a folder' });
+    }
+    
+    // 确保目标目录存在
+    const newDirPath = path.dirname(fullNewPath);
+    if (!fs.existsSync(newDirPath)) {
+      fs.mkdirSync(newDirPath, { recursive: true });
+    }
+    
+    // 重命名文件夹
+    fs.renameSync(fullOldPath, fullNewPath);
+    
+    // 重建搜索索引
+    try {
+      await searchEngine.buildIndex();
+    } catch (indexError) {
+      console.warn('Failed to rebuild search index after folder rename:', indexError);
+    }
+    
+    res.json({ success: true, message: 'Folder renamed successfully' });
+  } catch (error) {
+    console.error('Failed to rename folder:', error);
+    res.status(500).json({ error: 'Failed to rename folder' });
+  }
+});
+
+
+
 // 递归获取所有笔记文件
 function getAllNotes(dir: string, basePath: string = ''): any[] {
   const notes = [];
   const items = fs.readdirSync(dir);
   
-  for (const item of items) {
+  // 过滤掉 .resources 和 node_modules 等不需要的目录
+  const filteredItems = items.filter(item => 
+    item !== '.resources' && 
+    item !== 'node_modules' && 
+    item !== '.git' &&
+    item !== '.vscode' &&
+    item !== 'public' &&
+    item !== 'src'
+  );
+  
+  // 分离文件夹和文件
+  const folders = [];
+  const files = [];
+  
+  for (const item of filteredItems) {
     const fullPath = path.join(dir, item);
-    const relativePath = path.join(basePath, item);
+    // 使用正斜杠作为路径分隔符，确保在Web API中正确处理
+    const relativePath = basePath ? `${basePath}/${item}` : item;
     const stat = fs.statSync(fullPath);
     
+    // 跳过 .resources 目录
+    if (item === '.resources') {
+      continue;
+    }
+    
     if (stat.isDirectory()) {
-      notes.push({
+      folders.push({
         id: relativePath,
         title: item,
         isFolder: true,
+        filePath: relativePath,
         children: getAllNotes(fullPath, relativePath)
       });
-    } else if (stat.isFile() && item.endsWith('.md')) {
+    } else if (stat.isFile() && item.endsWith('.json')) {
       // 获取文件的最后修改时间
       const mtime = stat.mtime;
       
-      notes.push({
+      files.push({
         id: relativePath,
-        title: item,
+        title: item.replace(/\.json$/, ''), // 显示时不带.json扩展名
         isFolder: false,
         filePath: relativePath,
         updatedAt: mtime
       });
     }
   }
+  
+  // 先排序文件夹，再排序文件（都按标题字母顺序）
+  folders.sort((a, b) => a.title.localeCompare(b.title));
+  files.sort((a, b) => a.title.localeCompare(b.title));
+  
+  // 先添加文件夹，再添加文件
+  notes.push(...folders);
+  notes.push(...files);
   
   return notes;
 }

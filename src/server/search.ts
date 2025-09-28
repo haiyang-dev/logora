@@ -6,8 +6,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 配置 notes-md 目录路径
-const NOTES_DIR = path.join(__dirname, '../../notes-md');
+// 配置 workspace 目录路径（修改为workspace目录，而不是notes-md目录）
+const NOTES_DIR = path.join(__dirname, '../../workspace');
 
 // 搜索索引接口
 interface SearchIndex {
@@ -57,12 +57,13 @@ class SearchEngine {
     
     for (const item of items) {
       const fullPath = path.join(dir, item);
-      const relativePath = path.join(basePath, item);
+      // 使用正斜杠作为路径分隔符，确保在Web API中正确处理
+      const relativePath = basePath ? `${basePath}/${item}` : item;
       const stat = fs.statSync(fullPath);
       
       if (stat.isDirectory()) {
         await this.indexDirectory(fullPath, relativePath);
-      } else if (stat.isFile() && item.endsWith('.md')) {
+      } else if (stat.isFile() && item.endsWith('.json')) { // 修改为处理.json文件，而不是.md文件
         await this.indexFile(fullPath, relativePath);
       }
     }
@@ -74,11 +75,54 @@ class SearchEngine {
       const content = fs.readFileSync(fullPath, 'utf8');
       const stat = fs.statSync(fullPath);
       
+      // 解析JSON内容以提取文本用于索引
+      let textContent = '';
+      try {
+        const jsonData = JSON.parse(content);
+        // 从JSON数据中提取文本内容（假设JSON包含blocks数组）
+        if (Array.isArray(jsonData)) {
+          textContent = jsonData.map((block: any) => {
+            if (typeof block === 'object' && block !== null) {
+              // 处理不同类型的block
+              if (block.type === 'paragraph' && Array.isArray(block.content)) {
+                return block.content.map((item: any) => item.text || '').join(' ');
+              } else if (block.type === 'heading' && Array.isArray(block.content)) {
+                return block.content.map((item: any) => item.text || '').join(' ');
+              } else if (block.type === 'table' && block.content && block.content.rows) {
+                // 处理表格内容
+                return block.content.rows.map((row: any) => 
+                  row.cells.map((cell: any) => 
+                    Array.isArray(cell.content) ? 
+                      cell.content.map((item: any) => item.text || '').join(' ') : 
+                      ''
+                  ).join(' ')
+                ).join(' ');
+              } else if (block.type === 'text' && typeof block.text === 'string') {
+                return block.text;
+              } else if (block.type === 'code' && block.data && typeof block.data.code === 'string') {
+                return block.data.code;
+              } else {
+                // 对于其他类型的block，尝试获取文本内容
+                return this.extractTextFromBlock(block);
+              }
+            }
+            return '';
+          }).join(' ');
+        } else {
+          // 如果JSON不是数组，将其转换为字符串
+          textContent = JSON.stringify(jsonData);
+        }
+      } catch (parseError) {
+        // 如果JSON解析失败，使用原始内容
+        textContent = content;
+        console.warn(`Failed to parse JSON for indexing ${relativePath}:`, parseError);
+      }
+      
       // 提取关键词（简单实现，实际项目中可以使用更复杂的算法）
-      const keywords = this.extractKeywords(content);
+      const keywords = this.extractKeywords(textContent);
       
       // 创建内容预览
-      const contentPreview = content.substring(0, 200);
+      const contentPreview = textContent.substring(0, 200);
       
       this.index.push({
         fileId: relativePath,
@@ -93,11 +137,40 @@ class SearchEngine {
     }
   }
 
+  // 从block中提取文本内容的辅助函数
+  private extractTextFromBlock(block: any): string {
+    if (!block || typeof block !== 'object') {
+      return '';
+    }
+    
+    let text = '';
+    
+    // 递归处理对象中的文本字段
+    for (const key in block) {
+      if (typeof block[key] === 'string' && key === 'text') {
+        text += block[key] + ' ';
+      } else if (Array.isArray(block[key])) {
+        text += block[key].map((item: any) => {
+          if (typeof item === 'string') {
+            return item;
+          } else if (typeof item === 'object' && item !== null) {
+            return this.extractTextFromBlock(item);
+          }
+          return '';
+        }).join(' ');
+      } else if (typeof block[key] === 'object' && block[key] !== null) {
+        text += this.extractTextFromBlock(block[key]);
+      }
+    }
+    
+    return text;
+  }
+
   // 提取关键词（简单实现）
   private extractKeywords(content: string): string[] {
-    // 移除 Markdown 标记并转换为小写
+    // 移除特殊字符并转换为小写
     const cleanContent = content
-      .replace(/[#*`[\]()\-_]/g, ' ')
+      .replace(/[{}[\]"':,]/g, ' ')
       .toLowerCase();
     
     // 分割单词并过滤常见停用词
@@ -125,7 +198,8 @@ class SearchEngine {
       'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might',
       'must', 'can', 'this', 'that', 'these', 'those', 'a', 'an', 'as', 'from', 'up', 'about', 'into', 'through',
       'over', 'after', 'before', 'between', 'among', 'during', 'without', 'within', 'along', 'across', 'behind',
-      'beyond', 'near', 'toward', 'under', 'until', 'upon', 'via', 'out', 'off', 'down', 'around', 'amongst'
+      'beyond', 'near', 'toward', 'under', 'until', 'upon', 'via', 'out', 'off', 'down', 'around', 'amongst',
+      'true', 'false', 'null', 'undefined'
     ];
     return stopWords.includes(word);
   }
@@ -169,7 +243,7 @@ class SearchEngine {
         results.push({
           fileId: item.fileId,
           fileName: item.fileName,
-          filePath: item.fileId,
+          filePath: item.fileId, // 确保filePath使用正斜杠
           contentPreview: item.contentPreview,
           relevance
         });

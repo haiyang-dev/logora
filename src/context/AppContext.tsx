@@ -1,23 +1,33 @@
 import React, { createContext, useContext, useReducer } from 'react';
 import type { ReactNode } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import type { Note, AppState } from '../types';
+import type { Note, AppState, SearchResult } from '../types';
+import { FileSystemManager } from '../utils/fileSystem';
 
 // 动作类型
 type AppAction = 
   | { type: 'SELECT_NOTE'; payload: string }
   | { type: 'ADD_NOTE'; payload: { parentId?: string; title: string; isFolder: boolean } }
+  | { type: 'ADD_FOLDER'; payload: { parentId?: string; title: string } }
+  | { type: 'ADD_NOTE_WITH_FILE'; payload: { parentId?: string; title: string; isFolder: boolean; filePath: string } }
   | { type: 'UPDATE_NOTE'; payload: { id: string; updates: Partial<Note> } }
   | { type: 'DELETE_NOTE'; payload: string }
   | { type: 'TOGGLE_FOLDER'; payload: string }
+  | { type: 'EXPAND_FOLDERS'; payload: string[] }
+  | { type: 'SELECT_NOTE_AND_EXPAND_PATH'; payload: string }
   | { type: 'LOAD_NOTES'; payload: Record<string, Note> }
-  | { type: 'LOAD_FILE_SYSTEM_NOTES'; payload: any[] }; // 新增动作类型用于加载文件系统笔记
+  | { type: 'LOAD_FILE_SYSTEM_NOTES'; payload: any[] }
+  | { type: 'SET_SEARCH_RESULTS'; payload: SearchResult[] }
+  | { type: 'CLEAR_SEARCH_RESULTS' }
+  | { type: 'RENAME_NOTE'; payload: { id: string; newTitle: string } }
 
 // 初始状态
 const initialState: AppState = {
   notes: {},
   selectedNoteId: null,
   expandedFolders: new Set(),
+  searchResults: [],
+  searchQuery: '',
 };
 
 // Reducer
@@ -32,6 +42,140 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'ADD_NOTE': {
       const id = uuidv4();
       const now = new Date();
+      
+      // 生成文件路径（仅对非文件夹）
+      let filePath: string | undefined;
+      if (!action.payload.isFolder) {
+        // 获取父级路径
+        let parentPath = '';
+        if (action.payload.parentId) {
+          const parentNote = state.notes[action.payload.parentId];
+          if (parentNote && parentNote.filePath) {
+            // 如果父级是文件夹，使用其路径作为目录
+            if (parentNote.isFolder) {
+              parentPath = parentNote.filePath.replace(/\.md$/, '');
+            } else {
+              // 如果父级是文件，使用其目录
+              const pathParts = parentNote.filePath.split('/');
+              pathParts.pop(); // 移除文件名
+              parentPath = pathParts.join('/');
+            }
+          }
+        }
+        
+        // 使用自定义标题生成文件路径
+        filePath = FileSystemManager.generateFilePath(action.payload.title, parentPath);
+      }
+      
+      const newNote: Note = {
+        id,
+        title: action.payload.title, // 使用自定义标题
+        content: action.payload.isFolder ? null : [
+          {
+            type: 'heading',
+            props: { level: 1 },
+            content: [{ type: 'text', text: action.payload.title }] // 标题块也使用自定义标题
+          },
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: '' }]
+          }
+        ],
+        parentId: action.payload.parentId,
+        children: action.payload.isFolder ? [] : undefined,
+        createdAt: now,
+        updatedAt: now,
+        isFolder: action.payload.isFolder,
+        filePath: filePath
+      };
+      
+      // 只有非文件夹笔记才创建文件
+      if (!action.payload.isFolder && filePath) {
+        // 异步创建文件（不等待结果）
+        FileSystemManager.createNote(filePath, action.payload.title, [
+          {
+            type: 'heading',
+            props: { level: 1 },
+            content: [{ type: 'text', text: action.payload.title }]
+          },
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: '' }]
+          }
+        ]).catch(error => {
+          console.error('Failed to create file for new note:', error);
+        });
+      }
+      
+      return {
+        ...state,
+        notes: {
+          ...state.notes,
+          [id]: newNote,
+        },
+        selectedNoteId: action.payload.isFolder ? state.selectedNoteId : id,
+      };
+    }
+    
+    case 'ADD_FOLDER': {
+      const id = uuidv4();
+      const now = new Date();
+      
+      // 生成文件夹路径
+      let folderPath: string | undefined;
+      let parentPath = '';
+      
+      // 获取父级路径
+      if (action.payload.parentId) {
+        const parentNote = state.notes[action.payload.parentId];
+        if (parentNote && parentNote.filePath) {
+          // 如果父级是文件夹，使用其路径作为目录
+          if (parentNote.isFolder) {
+            parentPath = parentNote.filePath.replace(/\.md$/, '');
+          } else {
+            // 如果父级是文件，使用其目录
+            const pathParts = parentNote.filePath.split('/');
+            pathParts.pop(); // 移除文件名
+            parentPath = pathParts.join('/');
+          }
+        }
+      }
+      
+      // 生成文件夹路径
+      folderPath = parentPath ? `${parentPath}/${action.payload.title}` : action.payload.title;
+      
+      const newFolder: Note = {
+        id,
+        title: action.payload.title,
+        content: null,
+        parentId: action.payload.parentId,
+        children: [],
+        createdAt: now,
+        updatedAt: now,
+        isFolder: true,
+        filePath: folderPath
+      };
+      
+      // 异步创建文件夹（不等待结果）
+      if (folderPath) {
+        FileSystemManager.createFolder(folderPath).catch(error => {
+          console.error('Failed to create folder:', error);
+        });
+      }
+      
+      return {
+        ...state,
+        notes: {
+          ...state.notes,
+          [id]: newFolder,
+        },
+        selectedNoteId: state.selectedNoteId, // 不改变选中的笔记
+      };
+    }
+    
+    case 'ADD_NOTE_WITH_FILE': {
+      const id = uuidv4();
+      const now = new Date();
       const newNote: Note = {
         id,
         title: action.payload.title,
@@ -41,6 +185,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         createdAt: now,
         updatedAt: now,
         isFolder: action.payload.isFolder,
+        filePath: action.payload.filePath
       };
       
       return {
@@ -57,15 +202,28 @@ function appReducer(state: AppState, action: AppAction): AppState {
       const note = state.notes[action.payload.id];
       if (!note) return state;
       
-      // 如果action.payload.updates中已经提供了updatedAt，则使用它，否则使用当前时间
-      const updatedAt = action.payload.updates.updatedAt !== undefined ? 
-        action.payload.updates.updatedAt : 
-        new Date();
+      // 检查是否是标题更改
+      const isTitleChange = action.payload.updates.title !== undefined;
       
-      const updatedNote = {
+      // 检查内容是否真正发生变化
+      let hasContentChanged = false;
+      if (action.payload.updates.content !== undefined) {
+        // 只有当提供了新的内容时才检查是否发生变化
+        hasContentChanged = JSON.stringify(note.content || []) !== JSON.stringify(action.payload.updates.content);
+      }
+      
+      // 只有当内容真正发生变化或明确提供了updatedAt时才更新时间戳
+      const isExplicitTimestampUpdate = action.payload.updates.updatedAt !== undefined;
+      const shouldUpdateTimestamp = hasContentChanged || isExplicitTimestampUpdate;
+      
+      const updatedAt = isExplicitTimestampUpdate ? 
+        action.payload.updates.updatedAt : 
+        (shouldUpdateTimestamp ? new Date() : note.updatedAt);
+      
+      const updatedNote: Note = {
         ...note,
         ...action.payload.updates,
-        updatedAt,
+        updatedAt: updatedAt || note.updatedAt, // 确保updatedAt始终有值
       };
       
       return {
@@ -77,7 +235,103 @@ function appReducer(state: AppState, action: AppAction): AppState {
       };
     }
     
+    // 新增专门用于重命名笔记的动作
+    case 'RENAME_NOTE': {
+      const note = state.notes[action.payload.id];
+      if (!note || !note.filePath) return state;
+      
+      const oldFilePath = note.filePath;
+      // 获取父级路径，使用通用的路径分隔符处理方法
+      const pathParts = oldFilePath.split(/[\/\\]/); // 同时处理正斜杠和反斜杠
+      pathParts.pop(); // 移除旧文件名
+      const parentPath = pathParts.join('/'); // 使用正斜杠作为统一格式
+      
+      if (note.isFolder) {
+        // 处理文件夹重命名
+        const newFolderName = action.payload.newTitle;
+        const newFilePath = parentPath ? `${parentPath}/${newFolderName}` : newFolderName;
+        
+        // 只有当文件名真正改变时才重命名
+        if (oldFilePath !== newFilePath) {
+          // 异步重命名文件夹
+          FileSystemManager.renameFolder(oldFilePath, newFilePath).catch((error: any) => {
+            console.error('Failed to rename folder:', error);
+          });
+          
+          // 更新笔记信息
+          return {
+            ...state,
+            notes: {
+              ...state.notes,
+              [action.payload.id]: {
+                ...note,
+                title: action.payload.newTitle,
+                filePath: newFilePath,
+                updatedAt: new Date()
+              },
+            },
+          };
+        }
+      } else {
+        // 处理文件重命名
+        const newFileName = FileSystemManager.generateFilePath(action.payload.newTitle);
+        const newFilePath = parentPath ? `${parentPath}/${newFileName}` : newFileName;
+        
+        // 只有当文件名真正改变时才重命名
+        if (oldFilePath !== newFilePath) {
+          // 异步重命名文件
+          FileSystemManager.renameNote(oldFilePath, newFilePath).catch((error: any) => {
+            console.error('Failed to rename note file:', error);
+          });
+          
+          // 更新笔记信息
+          return {
+            ...state,
+            notes: {
+              ...state.notes,
+              [action.payload.id]: {
+                ...note,
+                title: action.payload.newTitle,
+                filePath: newFilePath,
+                updatedAt: new Date()
+              },
+            },
+          };
+        }
+      }
+      
+      // 如果文件名没有改变，只更新标题
+      return {
+        ...state,
+        notes: {
+          ...state.notes,
+          [action.payload.id]: {
+            ...note,
+            title: action.payload.newTitle,
+            updatedAt: new Date()
+          },
+        },
+      };
+    }
+    
     case 'DELETE_NOTE': {
+      const noteToDelete = state.notes[action.payload];
+      
+      // 如果笔记有文件路径，尝试删除文件系统中的文件或文件夹
+      if (noteToDelete && noteToDelete.filePath) {
+        if (noteToDelete.isFolder) {
+          // 删除文件夹
+          FileSystemManager.deleteFolder(noteToDelete.filePath).catch(error => {
+            console.error('Failed to delete folder:', error);
+          });
+        } else {
+          // 删除文件
+          FileSystemManager.deleteNote(noteToDelete.filePath).catch(error => {
+            console.error('Failed to delete file for note:', error);
+          });
+        }
+      }
+      
       const newNotes = { ...state.notes };
       delete newNotes[action.payload];
       
@@ -90,14 +344,61 @@ function appReducer(state: AppState, action: AppAction): AppState {
     
     case 'TOGGLE_FOLDER': {
       const newExpanded = new Set(state.expandedFolders);
-      if (newExpanded.has(action.payload)) {
+      const wasExpanded = newExpanded.has(action.payload);
+      
+      if (wasExpanded) {
         newExpanded.delete(action.payload);
       } else {
         newExpanded.add(action.payload);
       }
       
+      
       return {
         ...state,
+        expandedFolders: newExpanded,
+      };
+    }
+
+    case 'EXPAND_FOLDERS': {
+      const newExpanded = new Set(state.expandedFolders);
+      action.payload.forEach(folderId => {
+        newExpanded.add(folderId);
+      });
+      
+      return {
+        ...state,
+        expandedFolders: newExpanded,
+      };
+    }
+
+    case 'SELECT_NOTE_AND_EXPAND_PATH': {
+      const noteId = action.payload;
+      const note = state.notes[noteId];
+      
+      if (!note) return state;
+      
+      // 收集所有需要展开的父级文件夹
+      const foldersToExpand: string[] = [];
+      let currentNoteId: string | undefined = note.parentId;
+      
+      while (currentNoteId) {
+        const parentNote = state.notes[currentNoteId];
+        if (parentNote && parentNote.isFolder) {
+          foldersToExpand.push(currentNoteId);
+          currentNoteId = parentNote.parentId;
+        } else {
+          break;
+        }
+      }
+      
+      const newExpanded = new Set(state.expandedFolders);
+      foldersToExpand.forEach(folderId => {
+        newExpanded.add(folderId);
+      });
+      
+      return {
+        ...state,
+        selectedNoteId: noteId,
         expandedFolders: newExpanded,
       };
     }
@@ -109,9 +410,12 @@ function appReducer(state: AppState, action: AppAction): AppState {
       };
     
     case 'LOAD_FILE_SYSTEM_NOTES': {
+      console.log('处理LOAD_FILE_SYSTEM_NOTES动作，payload:', action.payload);
       // 将文件系统笔记转换为应用笔记格式
       const convertToNotes = (items: any[], parentId?: string): Record<string, Note> => {
         const notes: Record<string, Note> = {};
+        
+        console.log('convertToNotes调用，items:', items, 'parentId:', parentId);
         
         items.forEach(item => {
           const id = item.id;
@@ -121,11 +425,12 @@ function appReducer(state: AppState, action: AppAction): AppState {
           const updatedAt = item.updatedAt ? new Date(item.updatedAt) : now;
           
           // 修复：不要为文件设置默认内容，而是在需要时加载
+          // 正确处理parentId，对于根节点应该是undefined，对于子节点应该是父节点的id
           const note: Note = {
             id,
-            title: item.title,
+            title: item.isFolder ? item.title : item.title.replace(/\.md$/, ''), // 移除文件扩展名
             content: item.isFolder ? null : undefined, // 文件的内容在需要时才加载
-            parentId,
+            parentId: parentId !== undefined ? parentId : undefined, // 保持正确的parentId值
             children: item.isFolder ? [] : undefined,
             createdAt: now,
             updatedAt,
@@ -135,23 +440,38 @@ function appReducer(state: AppState, action: AppAction): AppState {
           
           notes[id] = note;
           
-          // 递归处理子项
-          if (item.children && item.children.length > 0) {
+          // 重要修复：只有文件夹才可能有子节点，文件不应该有子节点
+          if (item.isFolder && item.children && item.children.length > 0) {
             const childNotes = convertToNotes(item.children, id);
             Object.assign(notes, childNotes);
           }
         });
         
+        console.log('convertToNotes返回，notes:', notes);
         return notes;
       };
       
       const fileSystemNotes = convertToNotes(action.payload);
+      console.log('转换后的笔记对象:', fileSystemNotes);
       
       return {
         ...state,
         notes: fileSystemNotes,
       };
     }
+
+    case 'SET_SEARCH_RESULTS':
+      return {
+        ...state,
+        searchResults: action.payload,
+      };
+
+    case 'CLEAR_SEARCH_RESULTS':
+      return {
+        ...state,
+        searchResults: [],
+        searchQuery: '',
+      };
     
     default:
       return state;

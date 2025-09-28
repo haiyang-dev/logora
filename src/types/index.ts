@@ -22,10 +22,21 @@ export interface NoteTreeItem {
   filePath?: string; // 用于关联本地文件系统中的文件路径
 }
 
+// 搜索结果接口
+export interface SearchResult {
+  fileId: string;
+  fileName: string;
+  filePath: string;
+  contentPreview: string;
+  relevance: number;
+}
+
 export interface AppState {
   notes: Record<string, Note>;
   selectedNoteId: string | null;
   expandedFolders: Set<string>;
+  searchResults: SearchResult[];
+  searchQuery: string;
 }
 
 // 本地文件系统笔记结构

@@ -6,11 +6,15 @@ export class FileSystemManager {
   // 获取所有笔记文件列表
   static async getAllNotes(): Promise<any[]> {
     try {
+      console.log('正在调用 API:', `${this.API_BASE}/notes`);
       const response = await fetch(`${this.API_BASE}/notes`);
+      console.log('API 响应状态:', response.status, response.statusText);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      return await response.json();
+      const data = await response.json();
+      console.log('获取到的数据:', data);
+      return data;
     } catch (error) {
       console.error('Failed to fetch notes:', error);
       throw error;
@@ -82,6 +86,165 @@ export class FileSystemManager {
     }
   }
 
+  // 创建新笔记文件
+  static async createNote(filePath: string, title: string, content: any[] = []): Promise<void> {
+    try {
+      // 确保文件路径以 .json 结尾
+      const noteFilePath = filePath.endsWith('.json') ? filePath : `${filePath}.json`;
+      
+      // 对文件路径进行编码以处理特殊字符和路径分隔符
+      const encodedPath = encodeURIComponent(noteFilePath);
+      const response = await fetch(`${this.API_BASE}/notes/${encodedPath}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error('Failed to create note');
+      }
+    } catch (error) {
+      console.error(`Failed to create note ${filePath}:`, error);
+      throw error;
+    }
+  }
+
+  // 创建新文件夹
+  static async createFolder(folderPath: string): Promise<void> {
+    try {
+      // 发送请求到后端创建文件夹
+      const response = await fetch(`${this.API_BASE}/folders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ folderPath }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error('Failed to create folder');
+      }
+    } catch (error) {
+      console.error(`Failed to create folder ${folderPath}:`, error);
+      throw error;
+    }
+  }
+
+  // 删除笔记文件
+  static async deleteNote(filePath: string): Promise<void> {
+    try {
+      // 对文件路径进行编码以处理特殊字符和路径分隔符
+      const encodedPath = encodeURIComponent(filePath);
+      const response = await fetch(`${this.API_BASE}/notes/${encodedPath}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error('Failed to delete note');
+      }
+    } catch (error) {
+      console.error(`Failed to delete note ${filePath}:`, error);
+      throw error;
+    }
+  }
+
+  // 删除文件夹
+  static async deleteFolder(folderPath: string): Promise<void> {
+    try {
+      // 发送请求到后端删除文件夹
+      const response = await fetch(`${this.API_BASE}/folders`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ folderPath }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error('Failed to delete folder');
+      }
+    } catch (error) {
+      console.error(`Failed to delete folder ${folderPath}:`, error);
+      throw error;
+    }
+  }
+
+  // 重命名笔记文件
+  static async renameNote(oldFilePath: string, newFilePath: string): Promise<void> {
+    try {
+      console.log('FileSystemManager.renameNote called with:', { oldFilePath, newFilePath });
+      const response = await fetch(`${this.API_BASE}/notes/rename`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ oldPath: oldFilePath, newPath: newFilePath }),
+      });
+      
+      console.log('API response status:', response.status);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('API response data:', data);
+      if (!data.success) {
+        throw new Error('Failed to rename note');
+      }
+      console.log('FileSystemManager.renameNote completed successfully');
+    } catch (error) {
+      console.error(`Failed to rename note from ${oldFilePath} to ${newFilePath}:`, error);
+      throw error;
+    }
+  }
+
+  // 重命名文件夹
+  static async renameFolder(oldFolderPath: string, newFolderPath: string): Promise<void> {
+    try {
+      const response = await fetch(`${this.API_BASE}/folders/rename`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ oldPath: oldFolderPath, newPath: newFolderPath }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error('Failed to rename folder');
+      }
+    } catch (error) {
+      console.error(`Failed to rename folder from ${oldFolderPath} to ${newFolderPath}:`, error);
+      throw error;
+    }
+  }
+
   // 重建搜索索引
   static async rebuildSearchIndex(): Promise<void> {
     try {
@@ -100,40 +263,17 @@ export class FileSystemManager {
       throw error;
     }
   }
-}
 
-// 添加一个简单的测试函数，可以在浏览器控制台中运行
-if (typeof window !== 'undefined') {
-  (window as any).testFileSystemManager = async () => {
-    console.log('开始测试FileSystemManager...');
+  // 生成文件路径
+  static generateFilePath(title: string, parentPath?: string): string {
+    // 清理标题，移除非法字符
+    const cleanTitle = title.replace(/[<>:"/\\|?*]/g, '').trim();
+    const fileName = `${cleanTitle}.json`; // 使用.json扩展名
     
-    try {
-      console.log('1. 测试获取所有笔记...');
-      const notes = await FileSystemManager.getAllNotes();
-      console.log('获取到的笔记列表:', notes);
-      console.log('笔记数量:', notes.length);
-      
-      if (notes.length > 0) {
-        // 找到第一个文件笔记进行测试
-        const firstFileNote = notes.find((note: any) => !note.isFolder && note.filePath);
-        if (firstFileNote) {
-          console.log('找到测试笔记:', firstFileNote);
-          
-          console.log('2. 测试读取笔记内容...');
-          const content = await FileSystemManager.readNote(firstFileNote.filePath);
-          console.log('笔记内容:', content);
-          console.log('原始内容长度:', content.rawContent.length);
-          console.log('测试完成！');
-        } else {
-          console.log('没有找到任何文件笔记');
-        }
-      } else {
-        console.log('没有找到任何笔记');
-      }
-    } catch (error) {
-      console.error('测试失败:', error);
+    if (parentPath) {
+      return `${parentPath}/${fileName}`;
     }
-  };
-  
-  console.log('FileSystemManager测试函数已添加到window.testFileSystemManager');
+    
+    return fileName;
+  }
 }

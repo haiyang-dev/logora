@@ -9,7 +9,7 @@ export class ImageUploadManager {
       // 创建 FormData 对象
       const formData = new FormData();
       formData.append('image', file);
-      formData.append('notePath', notePath);
+      formData.append('notePath', notePath); // 传递笔记路径
 
       // 发送上传请求
       const response = await fetch(`${this.API_BASE}/api/upload-image`, {
@@ -22,7 +22,8 @@ export class ImageUploadManager {
       }
 
       const data = await response.json();
-      return data.url; // 返回图片的URL
+
+      return data.url; // 返回相对路径格式的URL，指向/resources/images/
     } catch (error) {
       console.error('图片上传失败:', error);
       throw error;
