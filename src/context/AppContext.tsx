@@ -9,7 +9,7 @@ type AppAction =
   | { type: 'SELECT_NOTE'; payload: string }
   | { type: 'ADD_NOTE'; payload: { parentId?: string; title: string; isFolder: boolean } }
   | { type: 'ADD_FOLDER'; payload: { parentId?: string; title: string } }
-  | { type: 'ADD_NOTE_WITH_FILE'; payload: { parentId?: string; title: string; isFolder: boolean; filePath: string } }
+  | { type: 'ADD_NOTE_WITH_FILE'; payload: { parentId?: string; title: string; isFolder: boolean; filePath: string; content?: any } }
   | { type: 'UPDATE_NOTE'; payload: { id: string; updates: Partial<Note> } }
   | { type: 'DELETE_NOTE'; payload: string }
   | { type: 'TOGGLE_FOLDER'; payload: string }
@@ -20,6 +20,7 @@ type AppAction =
   | { type: 'SET_SEARCH_RESULTS'; payload: SearchResult[] }
   | { type: 'CLEAR_SEARCH_RESULTS' }
   | { type: 'RENAME_NOTE'; payload: { id: string; newTitle: string } }
+  | { type: 'FORCE_UPDATE' } // 添加强制更新操作
 
 // 初始状态
 const initialState: AppState = {
@@ -53,7 +54,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
           if (parentNote && parentNote.filePath) {
             // 如果父级是文件夹，使用其路径作为目录
             if (parentNote.isFolder) {
-              parentPath = parentNote.filePath.replace(/\.md$/, '');
+              parentPath = parentNote.filePath;
             } else {
               // 如果父级是文件，使用其目录
               const pathParts = parentNote.filePath.split('/');
@@ -64,7 +65,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
         }
         
         // 使用自定义标题生成文件路径
-        filePath = FileSystemManager.generateFilePath(action.payload.title, parentPath);
+        const fileName = `${action.payload.title}.json`;
+        filePath = parentPath ? `${parentPath}/${fileName}` : fileName;
       }
       
       const newNote: Note = {
@@ -120,55 +122,90 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'ADD_FOLDER': {
       const id = uuidv4();
       const now = new Date();
-      
+
+      // 确定父级文件夹ID
+      let parentId: string | undefined = action.payload.parentId; // 优先使用显式指定的parentId
+
+      // 如果没有显式指定parentId，尝试从文件夹名称中推断
+      if (!parentId && action.payload.title) {
+        const pathParts = action.payload.title.replace(/\\/g, '/').split('/');
+        // 只有当路径包含多级时才尝试查找父级
+        if (pathParts.length > 1) {
+          // 这是一个嵌套路径，需要找到父级文件夹
+          pathParts.pop(); // 移除当前文件夹名
+          const parentPath = pathParts.join('/');
+
+          // 查找匹配的父级文件夹
+          const parentFolder = Object.values(state.notes).find(note => 
+            note.isFolder && note.filePath === parentPath
+          );
+
+          if (parentFolder) {
+            parentId = parentFolder.id;
+          }
+        }
+      }
+
       // 生成文件夹路径
       let folderPath: string | undefined;
-      let parentPath = '';
-      
-      // 获取父级路径
-      if (action.payload.parentId) {
-        const parentNote = state.notes[action.payload.parentId];
+      if (parentId) {
+        const parentNote = state.notes[parentId];
         if (parentNote && parentNote.filePath) {
           // 如果父级是文件夹，使用其路径作为目录
           if (parentNote.isFolder) {
-            parentPath = parentNote.filePath.replace(/\.md$/, '');
+            folderPath = `${parentNote.filePath}/${action.payload.title.split('/').pop()}`;
           } else {
             // 如果父级是文件，使用其目录
             const pathParts = parentNote.filePath.split('/');
             pathParts.pop(); // 移除文件名
-            parentPath = pathParts.join('/');
+            const parentPath = pathParts.join('/');
+            const folderName = action.payload.title.split('/').pop() || action.payload.title;
+            folderPath = parentPath ? `${parentPath}/${folderName}` : folderName;
           }
+        } else {
+          const folderName = action.payload.title.split('/').pop() || action.payload.title;
+          folderPath = folderName;
         }
+      } else {
+        // 如果没有父级，使用完整的路径作为文件夹路径
+        folderPath = action.payload.title;
       }
-      
-      // 生成文件夹路径
-      folderPath = parentPath ? `${parentPath}/${action.payload.title}` : action.payload.title;
-      
+
+      // 如果文件夹路径包含层级，使用最后一部分作为标题
+      const folderTitle = folderPath ? folderPath.split('/').pop() || folderPath : action.payload.title;
+
       const newFolder: Note = {
         id,
-        title: action.payload.title,
+        title: folderTitle,
         content: null,
-        parentId: action.payload.parentId,
+        parentId: parentId,
         children: [],
         createdAt: now,
         updatedAt: now,
         isFolder: true,
-        filePath: folderPath
+        filePath: folderPath  // 确保设置正确的filePath
       };
-      
+
+      console.log('ADD_FOLDER: Creating folder with:', { id, folderTitle, folderPath, parentId });
+
       // 异步创建文件夹（不等待结果）
       if (folderPath) {
         FileSystemManager.createFolder(folderPath).catch(error => {
           console.error('Failed to create folder:', error);
         });
       }
-      
+
+      // 创建一个新状态对象，确保笔记被正确添加
+      const newNotes = {
+        ...state.notes,
+        [id]: newFolder,
+      };
+
+      console.log('ADD_FOLDER: State after creation:', newNotes);
+
       return {
         ...state,
-        notes: {
-          ...state.notes,
-          [id]: newFolder,
-        },
+        notes: newNotes,
         selectedNoteId: state.selectedNoteId, // 不改变选中的笔记
       };
     }
@@ -176,11 +213,70 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'ADD_NOTE_WITH_FILE': {
       const id = uuidv4();
       const now = new Date();
+      
+      // 确定父级文件夹ID
+      let parentId: string | undefined = action.payload.parentId; // 优先使用显式指定的parentId
+      
+      console.log('ADD_NOTE_WITH_FILE action:', action.payload);
+      
+      // 如果没有显式指定parentId，尝试从filePath中推断
+      if (!parentId && action.payload.filePath) {
+        // 从文件路径中提取父级路径
+        const pathParts = action.payload.filePath.replace(/\\/g, '/').split('/');
+        console.log('Path parts:', pathParts);
+        if (pathParts.length > 1) {
+          // 移除文件名部分
+          pathParts.pop();
+          const parentPath = pathParts.join('/');
+          console.log('Looking for parent folder with path:', parentPath);
+          
+          // 查找匹配的父级文件夹
+          const parentFolder = Object.values(state.notes).find(note => 
+            note.isFolder && note.filePath === parentPath
+          );
+          
+          console.log('Direct parent folder found:', parentFolder);
+          
+          if (parentFolder) {
+            parentId = parentFolder.id;
+          } else {
+            // 如果直接父级没找到，尝试查找更上层的父级
+            for (let i = pathParts.length - 1; i >= 0; i--) {
+              const partialPath = pathParts.slice(0, i).join('/');
+              console.log('Looking for ancestor folder with path:', partialPath);
+              const ancestorFolder = Object.values(state.notes).find(note => 
+                note.isFolder && note.filePath === partialPath
+              );
+              if (ancestorFolder) {
+                console.log('Ancestor folder found:', ancestorFolder);
+                parentId = ancestorFolder.id;
+                break;
+              }
+            }
+          }
+        } else {
+          // 如果pathParts.length <= 1，说明是根目录下的文件
+          parentId = undefined;
+        }
+      }
+      
+      console.log('Determined parentId:', parentId);
+      
       const newNote: Note = {
         id,
         title: action.payload.title,
-        content: action.payload.isFolder ? null : [{ type: 'paragraph', content: '' }],
-        parentId: action.payload.parentId,
+        content: action.payload.isFolder ? null : (action.payload.content || [
+          {
+            type: 'heading',
+            props: { level: 1 },
+            content: [{ type: 'text', text: action.payload.title }]
+          },
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: '' }]
+          }
+        ]),
+        parentId: parentId, // 使用计算出的父级ID
         children: action.payload.isFolder ? [] : undefined,
         createdAt: now,
         updatedAt: now,
@@ -188,12 +284,41 @@ function appReducer(state: AppState, action: AppAction): AppState {
         filePath: action.payload.filePath
       };
       
+      console.log('ADD_NOTE_WITH_FILE: Creating note with:', { id, title: action.payload.title, filePath: action.payload.filePath, parentId });
+
+      // 只有非文件夹笔记才创建文件
+      if (!action.payload.isFolder && action.payload.filePath) {
+        // 异步创建文件（不等待结果）
+        FileSystemManager.createNote(
+          action.payload.filePath, 
+          action.payload.title, 
+          action.payload.content || [
+            {
+              type: 'heading',
+              props: { level: 1 },
+              content: [{ type: 'text', text: action.payload.title }]
+            },
+            {
+              type: 'paragraph',
+              content: [{ type: 'text', text: '' }]
+            }
+          ]
+        ).catch(error => {
+          console.error('Failed to create file for new note:', error);
+        });
+      }
+      
+      // 创建一个新状态对象，确保笔记被正确添加
+      const newNotes = {
+        ...state.notes,
+        [id]: newNote,
+      };
+
+      console.log('ADD_NOTE_WITH_FILE: State after creation:', newNotes);
+
       return {
         ...state,
-        notes: {
-          ...state.notes,
-          [id]: newNote,
-        },
+        notes: newNotes,
         selectedNoteId: action.payload.isFolder ? state.selectedNoteId : id,
       };
     }
@@ -471,6 +596,12 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         searchResults: [],
         searchQuery: '',
+      };
+    
+    case 'FORCE_UPDATE':
+      // 强制更新状态，触发重新渲染
+      return {
+        ...state
       };
     
     default:

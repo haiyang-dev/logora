@@ -642,12 +642,10 @@ function getAllNotes(dir: string, basePath: string = ''): any[] {
   const notes = [];
   const items = fs.readdirSync(dir);
   
-  // 过滤掉 .resources 和 node_modules 等不需要的目录
+  // 过滤掉以点(.)开头的隐藏文件夹和其他不需要的目录
   const filteredItems = items.filter(item => 
-    item !== '.resources' && 
+    !item.startsWith('.') &&  // 过滤掉所有以点(.)开头的隐藏文件夹
     item !== 'node_modules' && 
-    item !== '.git' &&
-    item !== '.vscode' &&
     item !== 'public' &&
     item !== 'src'
   );
@@ -661,11 +659,6 @@ function getAllNotes(dir: string, basePath: string = ''): any[] {
     // 使用正斜杠作为路径分隔符，确保在Web API中正确处理
     const relativePath = basePath ? `${basePath}/${item}` : item;
     const stat = fs.statSync(fullPath);
-    
-    // 跳过 .resources 目录
-    if (item === '.resources') {
-      continue;
-    }
     
     if (stat.isDirectory()) {
       folders.push({

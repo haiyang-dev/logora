@@ -2,7 +2,8 @@ import React, { useState, useCallback, useMemo } from 'react';
 import type { NoteTreeItem } from '../types';
 import { useApp } from '../context/AppContext';
 import { FileSystemManager } from '../utils/fileSystem';
-import { ExportManager } from '../utils/export';
+import { ExportManager } from '../utils/exportMarkdown';
+import { ImportManager } from '../utils/importMarkdown';
 
 interface TreeNode {
   id: string;
@@ -346,36 +347,9 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
 
   // 处理导出功能
   const handleExportNote = useCallback(async () => {
-    if (!state.selectedNoteId) {
-      alert('请先选择一个笔记进行导出');
-      return;
-    }
-    
-    const note = state.notes[state.selectedNoteId];
-    if (!note || note.isFolder) {
-      alert('请选择一个有效的笔记进行导出');
-      return;
-    }
-    
-    try {
-      // 如果笔记内容为空，从文件系统加载内容
-      let content = note.content;
-      if (!content && note.filePath) {
-        const noteData = await FileSystemManager.readNote(note.filePath);
-        content = noteData.content;
-      }
-      
-      // 导出为Markdown
-      if (editor) {
-        ExportManager.exportToMarkdown(note.title, content || [], editor);
-      } else {
-        alert('编辑器未准备好，请稍后再试');
-      }
-    } catch (error) {
-      console.error('导出笔记失败:', error);
-      alert('导出笔记失败: ' + (error as Error).message);
-    }
-  }, [state.selectedNoteId, state.notes, editor]);
+    // 根据需求，移除单个笔记导出功能
+    alert('单个笔记导出功能已移除。请使用"导出所有笔记"功能将所有笔记导出到指定文件夹。');
+  }, []);
 
   // 渲染树形项目 - 优化性能
   const renderTreeItem = useCallback((item: NoteTreeItem): React.ReactElement => {
@@ -480,12 +454,59 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
       <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', borderBottom: '1px solid #e5e7eb'}}>
         <h2 style={{fontSize: '18px', fontWeight: '600', color: '#111827'}}>Logora</h2>
         <div style={{display: 'flex', gap: '8px'}}>
-          {/* 导出所有笔记按钮 */}
+          {/* 导入Markdown笔记按钮 */}
           <button
             onClick={async () => {
               try {
                 if (editor) {
-                  await ExportManager.exportAllNotes(state.notes, editor);
+                  // 传递现有的笔记列表用于检查重复
+                  const existingNotes = Object.values(state.notes || {});
+                  console.log('Existing notes for duplicate check:', existingNotes);
+                  await ImportManager.importMarkdownNotes(dispatch, editor, existingNotes);
+                } else {
+                  alert('编辑器未准备好，请稍后再试');
+                }
+              } catch (error) {
+                console.error('导入Markdown笔记失败:', error);
+                alert('导入Markdown笔记失败: ' + (error as Error).message);
+              }
+            }}
+            style={
+              {
+                padding: '6px 12px',
+                fontSize: '14px',
+                color: '#8b5cf6',
+                backgroundColor: 'transparent',
+                border: '1px solid #8b5cf6',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }
+            }
+            onMouseEnter={(e) => {
+              const target = e.target as HTMLButtonElement;
+              target.style.backgroundColor = '#ede9fe';
+            }}
+            onMouseLeave={(e) => {
+              const target = e.target as HTMLButtonElement;
+              target.style.backgroundColor = 'transparent';
+            }}
+          >
+            <svg style={{width: '16px', height: '16px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+            </svg>
+            导入文件夹
+          </button>
+          
+          {/* 导出所有笔记到文件夹按钮 */}
+          <button
+            onClick={async () => {
+              try {
+                if (editor) {
+                  await ExportManager.exportAllNotesToFolder(state.notes, editor);
                 } else {
                   alert('编辑器未准备好，请稍后再试');
                 }
@@ -521,43 +542,8 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
             <svg style={{width: '16px', height: '16px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            全部导出
+            导出所有笔记
           </button>
-          
-          {/* 导出当前笔记按钮 */}
-          {state.selectedNoteId && state.notes[state.selectedNoteId] && !state.notes[state.selectedNoteId]?.isFolder && (
-            <button
-              onClick={handleExportNote}
-              style={
-                {
-                  padding: '6px 12px',
-                  fontSize: '14px',
-                  color: '#3b82f6',
-                  backgroundColor: 'transparent',
-                  border: '1px solid #3b82f6',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }
-              }
-              onMouseEnter={(e) => {
-                const target = e.target as HTMLButtonElement;
-                target.style.backgroundColor = '#eff6ff';
-              }}
-              onMouseLeave={(e) => {
-                const target = e.target as HTMLButtonElement;
-                target.style.backgroundColor = 'transparent';
-              }}
-            >
-              <svg style={{width: '16px', height: '16px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              导出
-            </button>
-          )}
         </div>
       </div>
       

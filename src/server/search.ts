@@ -55,7 +55,10 @@ class SearchEngine {
   private async indexDirectory(dir: string, basePath: string = ''): Promise<void> {
     const items = fs.readdirSync(dir);
     
-    for (const item of items) {
+    // 过滤掉以点(.)开头的隐藏文件夹
+    const filteredItems = items.filter(item => !item.startsWith('.'));
+    
+    for (const item of filteredItems) {
       const fullPath = path.join(dir, item);
       // 使用正斜杠作为路径分隔符，确保在Web API中正确处理
       const relativePath = basePath ? `${basePath}/${item}` : item;
