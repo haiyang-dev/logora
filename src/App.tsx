@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
+import { EditorProvider, useEditor } from './context/EditorContext';
 import { Sidebar } from './components/Sidebar';
 import { Editor } from './components/Editor';
 import { StorageManager } from './utils/storage';
@@ -7,6 +8,7 @@ import { FileSystemManager } from './utils/fileSystem';
 
 function AppContent() {
   const { state, dispatch } = useApp();
+  const { editor } = useEditor();
 
   // 初始化时加载文件系统中的笔记
   useEffect(() => {
@@ -38,7 +40,7 @@ function AppContent() {
       <div style={{display: 'flex', flex: '1'}}>
         {/* 侧边栏 */}
         <div style={{width: '320px', background: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column'}}>
-          <Sidebar className="" />
+          <Sidebar className="" editor={editor} />
         </div>
         
         {/* 编辑器区域 */}
@@ -53,7 +55,9 @@ function AppContent() {
 function App() {
   return (
     <AppProvider>
-      <AppContent />
+      <EditorProvider>
+        <AppContent />
+      </EditorProvider>
     </AppProvider>
   );
 }

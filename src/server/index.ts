@@ -4,7 +4,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import searchEngine from './search.js';
 import multer from 'multer';
+import { randomUUID } from 'crypto';
 import type { Request, Response } from 'express';
+import { createHash } from 'crypto';
 
 // 获取当前文件的目录路径
 const __filename = fileURLToPath(import.meta.url);
@@ -32,21 +34,14 @@ if (!fs.existsSync(IMAGES_DIR)) {
   fs.mkdirSync(IMAGES_DIR, { recursive: true });
 }
 
-// 配置 multer 中间件用于处理文件上传
-const storage = multer.diskStorage({
-  destination: (req: Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
-    // 所有上传的图片都保存到 .resources/images 目录
-    cb(null, IMAGES_DIR);
-  },
-  filename: (_req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
-    // 生成唯一的文件名，保持原始扩展名
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const filename = uniqueSuffix + path.extname(file.originalname);
-    cb(null, filename);
-  }
-});
+// 配置 multer 中间件用于处理文件上传，使用内存存储以便计算hash
+const storage = multer.memoryStorage();
 
-const upload = multer({ storage: storage });
+// 配置 multer，设置正确的文件名编码处理
+const upload = multer({ 
+  storage: storage,
+  preservePath: true
+});
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -103,7 +98,28 @@ app.use('/assets', express.static(path.join(__dirname, '../../public'), {
 }));
 
 // 为.resources目录提供静态资源服务
-app.use('/resources', express.static(RESOURCES_DIR));
+app.use('/resources', express.static(RESOURCES_DIR, {
+  setHeaders: (res, filePath) => {
+    // 设置适当的MIME类型
+    if (filePath.endsWith('.svg')) {
+      res.setHeader('Content-Type', 'image/svg+xml');
+    } else if (filePath.endsWith('.png')) {
+      res.setHeader('Content-Type', 'image/png');
+    } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+      res.setHeader('Content-Type', 'image/jpeg');
+    } else if (filePath.endsWith('.gif')) {
+      res.setHeader('Content-Type', 'image/gif');
+    } else if (filePath.endsWith('.webp')) {
+      res.setHeader('Content-Type', 'image/webp');
+    }
+    // 设置缓存头
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    // 添加CORS头以确保图片可以被前端访问
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  }
+}));
 
 // API 路由：获取所有笔记文件列表
 app.get('/api/notes', (_req: Request, res: Response) => {
@@ -432,19 +448,47 @@ app.get('/api/test-image', (_req: Request, res: Response) => {
 });
 
 // API 路由：上传图片
-app.post('/api/upload-image', upload.single('image'), (req: Request, res: Response) => {
+app.post('/api/upload-image', upload.single('image'), async (req: Request, res: Response) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
     
-    // 构建相对路径的图片URL（用于在编辑器中显示）
-    const imageUrl = `/resources/images/${req.file.filename}`;
+    // 计算文件内容的hash值，用于去重
+    const fileBuffer = req.file.buffer;
+    const hash = createHash('sha256').update(fileBuffer).digest('hex');
     
+    // 获取文件扩展名
+    let originalName = req.file.originalname;
+    try {
+      // 尝试解码可能被错误编码的文件名
+      originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+    } catch (decodeError) {
+      // 如果解码失败，保持原始文件名
+      console.warn('文件名解码失败:', decodeError);
+    }
+    
+    const fileExtension = path.extname(originalName);
+    const fileName = `${hash}${fileExtension}`;
+    const filePath = path.join(IMAGES_DIR, fileName);
+    
+    // 检查文件是否已存在，如果不存在则保存
+    if (!fs.existsSync(filePath)) {
+      // 保存文件到磁盘
+      fs.writeFileSync(filePath, fileBuffer);
+    }
+    
+    // 构建相对路径的图片URL
+    const relativeImageUrl = `/resources/images/${fileName}`;
+    
+    // 构建绝对URL，确保在BlockNote编辑器中能正确显示
+    const absoluteImageUrl = `http://localhost:3001${relativeImageUrl}`;
+    
+    // 返回BlockNote期望的格式
     res.json({ 
       success: true, 
-      url: imageUrl,
-      filename: req.file.filename
+      url: absoluteImageUrl,    // 使用绝对URL确保正确显示
+      name: originalName        // 使用原始文件名
     });
   } catch (error) {
     console.error('图片上传失败:', error);

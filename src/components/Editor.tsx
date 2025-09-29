@@ -7,6 +7,7 @@ import { useCreateBlockNote } from '@blocknote/react';
 import { unifiedSchema } from '../shared/schema';
 import { createHighlighter } from '../shiki.bundle';
 import { useApp } from '../context/AppContext';
+import { useEditor } from '../context/EditorContext';
 import { FileSystemManager } from '../utils/fileSystem';
 import { ImageUploadManager } from '../utils/imageUpload';
 import '@blocknote/core/fonts/inter.css';
@@ -43,6 +44,7 @@ async function loadFromStorage(filePath: string) {
 
 export const Editor = React.memo(function Editor({ className }: EditorProps) {
   const { state, dispatch } = useApp();
+  const { setEditor } = useEditor();
   
   const selectedNote = state.selectedNoteId ? state.notes[state.selectedNoteId] : null;
   
@@ -63,21 +65,53 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
   const uploadFile = useCallback(async (file: File): Promise<string> => {
     try {
       // 使用我们自定义的图片上传管理器
-      const imageUrl = await ImageUploadManager.uploadImage(file, selectedNote?.filePath || '');
+      const imageUrl = await ImageUploadManager.uploadImage(file, ''); // 移除不必要的参数
       console.log('图片上传成功，URL:', imageUrl);
+      
+      // 验证图片URL是否可访问
+      try {
+        const response = await fetch(imageUrl, { method: 'HEAD' });
+        if (!response.ok) {
+          console.warn('图片URL可能无法访问:', imageUrl, response.status);
+        } else {
+          console.log('图片URL验证成功:', imageUrl, response.status);
+        }
+      } catch (verifyError) {
+        console.warn('图片URL验证失败:', imageUrl, verifyError);
+      }
+      
+      // 返回URL字符串
       return imageUrl;
     } catch (error) {
       console.error('图片上传失败:', error);
       throw error;
     }
-  }, [selectedNote?.filePath]);
+  }, []);
   
   // 使用 useCreateBlockNote 创建编辑器实例，传递 initialContent
   const editor = useCreateBlockNote({
     schema: unifiedSchema,
-    uploadFile: uploadFile,
+    uploadFile: async (file: File): Promise<string> => {
+      try {
+        // 使用我们自定义的图片上传管理器
+        const imageUrl = await ImageUploadManager.uploadImage(file, ''); // 移除不必要的参数
+        console.log('图片上传成功，URL:', imageUrl);
+        return imageUrl;
+      } catch (error) {
+        console.error('图片上传失败:', error);
+        throw error;
+      }
+    },
     initialContent: undefined
   });
+  
+  // 设置编辑器实例到上下文
+  useEffect(() => {
+    setEditor(editor);
+    return () => {
+      setEditor(null);
+    };
+  }, [editor, setEditor]);
   
   console.log('Editor 实例创建完成', editor?.document.length);
   

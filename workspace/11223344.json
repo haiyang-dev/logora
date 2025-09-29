@@ -117,7 +117,20 @@
     "children": []
   },
   {
-    "id": "1b65b16c-c4e9-431a-b3bd-a87dbf438c31",
+    "id": "1c2b6712-0bb0-4265-b6b6-6c7e3bb5c420",
+    "type": "image",
+    "props": {
+      "textAlignment": "left",
+      "backgroundColor": "default",
+      "name": "1759064814199-791586.jpeg",
+      "url": "http://localhost:3001/resources/images/1759064814199-791586007.jpeg",
+      "caption": "",
+      "showPreview": true
+    },
+    "children": []
+  },
+  {
+    "id": "e5dbed03-7736-430c-b038-9d9f6af288f4",
     "type": "paragraph",
     "props": {
       "backgroundColor": "default",
@@ -134,6 +147,32 @@
     "children": []
   },
   {
+    "id": "3473967a-1a97-421e-9354-4a1517c0f963",
+    "type": "image",
+    "props": {
+      "textAlignment": "left",
+      "backgroundColor": "default",
+      "name": "关注公众号（回复永久激活获取最新工具）.png",
+      "url": "http://localhost:3001/resources/images/40c034870e6d270a440fd34934aaa1309d32a4351eda25aea3c9ba970a558505.png",
+      "caption": "",
+      "showPreview": true
+    },
+    "children": []
+  },
+  {
+    "id": "daa4b628-53f9-4a14-8f15-4df89dde6481",
+    "type": "image",
+    "props": {
+      "textAlignment": "left",
+      "backgroundColor": "default",
+      "name": "关注公众号（回复永久激活获取最新工具）.png",
+      "url": "http://localhost:3001/resources/images/40c034870e6d270a440fd34934aaa1309d32a4351eda25aea3c9ba970a558505.png",
+      "caption": "",
+      "showPreview": true
+    },
+    "children": []
+  },
+  {
     "id": "89070ab8-cc51-4642-bad7-a072559630db",
     "type": "codeBlock",
     "props": {
@@ -146,6 +185,19 @@
         "styles": {}
       }
     ],
+    "children": []
+  },
+  {
+    "id": "c3a47012-5b64-44f0-8e81-c6cff76f7220",
+    "type": "image",
+    "props": {
+      "textAlignment": "left",
+      "backgroundColor": "default",
+      "name": "1759066072672-128970527.png",
+      "url": "http://localhost:3001/resources/images/1759066072672-128970527.png",
+      "caption": "",
+      "showPreview": true
+    },
     "children": []
   },
   {
