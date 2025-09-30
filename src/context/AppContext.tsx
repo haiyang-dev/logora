@@ -21,6 +21,7 @@ type AppAction =
   | { type: 'CLEAR_SEARCH_RESULTS' }
   | { type: 'RENAME_NOTE'; payload: { id: string; newTitle: string } }
   | { type: 'FORCE_UPDATE' } // 添加强制更新操作
+  | { type: 'SELECT_NOTE_AND_EXPAND_BY_PATH'; payload: string } // 新增动作：通过路径选择并展开笔记
 
 // 初始状态
 const initialState: AppState = {
@@ -174,6 +175,15 @@ function appReducer(state: AppState, action: AppAction): AppState {
       // 如果文件夹路径包含层级，使用最后一部分作为标题
       const folderTitle = folderPath ? folderPath.split('/').pop() || folderPath : action.payload.title;
 
+      // 如果已存在相同 filePath 的文件夹，则跳过添加，避免目录树重复
+      if (folderPath && Object.values(state.notes).some(n => n.isFolder && n.filePath === folderPath)) {
+        console.log('ADD_FOLDER: Folder already exists, skip adding:', folderPath);
+        return {
+          ...state,
+          selectedNoteId: state.selectedNoteId,
+        };
+      }
+
       const newFolder: Note = {
         id,
         title: folderTitle,
@@ -308,13 +318,18 @@ function appReducer(state: AppState, action: AppAction): AppState {
         });
       }
       
-      // 创建一个新状态对象，确保笔记被正确添加
-      const newNotes = {
-        ...state.notes,
-        [id]: newNote,
-      };
+      // 在添加之前，移除任何 filePath 相同的现有笔记，避免目录树出现重复
+      const newNotes: Record<string, Note> = { ...state.notes };
+      for (const [existingId, existingNote] of Object.entries(newNotes)) {
+        if (!existingNote.isFolder && existingNote.filePath === action.payload.filePath) {
+          delete newNotes[existingId];
+        }
+      }
+      // 添加新笔记
+      newNotes[id] = newNote;
 
       console.log('ADD_NOTE_WITH_FILE: State after creation:', newNotes);
+      console.log('ADD_NOTE_WITH_FILE: New note ID:', id);
 
       return {
         ...state,
@@ -441,6 +456,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
     
     case 'DELETE_NOTE': {
       const noteToDelete = state.notes[action.payload];
+      console.log('DELETE_NOTE called with id:', action.payload);
+      console.log('Note to delete:', noteToDelete);
       
       // 如果笔记有文件路径，尝试删除文件系统中的文件或文件夹
       if (noteToDelete && noteToDelete.filePath) {
@@ -459,11 +476,16 @@ function appReducer(state: AppState, action: AppAction): AppState {
       
       const newNotes = { ...state.notes };
       delete newNotes[action.payload];
+      console.log('Notes after deletion:', newNotes);
+      
+      // 如果删除的是当前选中的笔记，清除选中状态
+      const newSelectedNoteId = state.selectedNoteId === action.payload ? null : state.selectedNoteId;
+      console.log('New selected note ID:', newSelectedNoteId);
       
       return {
         ...state,
         notes: newNotes,
-        selectedNoteId: state.selectedNoteId === action.payload ? null : state.selectedNoteId,
+        selectedNoteId: newSelectedNoteId,
       };
     }
     
@@ -524,6 +546,52 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         selectedNoteId: noteId,
+        expandedFolders: newExpanded,
+      };
+    }
+    
+    case 'SELECT_NOTE_AND_EXPAND_BY_PATH': {
+      // 通过文件路径查找并选择笔记
+      const filePath = action.payload;
+      console.log('SELECT_NOTE_AND_EXPAND_BY_PATH called with filePath:', filePath);
+      console.log('Current notes count:', Object.keys(state.notes).length);
+      
+      // 直接查找笔记
+      const note = Object.values(state.notes).find(n => n.filePath === filePath);
+      console.log('Found note by filePath:', note);
+      
+      if (!note) {
+        console.log('Note not found for filePath:', filePath);
+        return state;
+      }
+      
+      // 收集所有需要展开的父级文件夹
+      const foldersToExpand: string[] = [];
+      let currentNoteId: string | undefined = note.parentId;
+      
+      console.log('Collecting parent folders for note:', note.id);
+      while (currentNoteId) {
+        const parentNote = state.notes[currentNoteId];
+        console.log('Checking parent note:', parentNote);
+        if (parentNote && parentNote.isFolder) {
+          foldersToExpand.push(currentNoteId);
+          console.log('Adding folder to expand:', currentNoteId);
+          currentNoteId = parentNote.parentId;
+        } else {
+          break;
+        }
+      }
+      
+      const newExpanded = new Set(state.expandedFolders);
+      foldersToExpand.forEach(folderId => {
+        newExpanded.add(folderId);
+      });
+      
+      console.log('Final expanded folders:', Array.from(newExpanded));
+      
+      return {
+        ...state,
+        selectedNoteId: note.id,
         expandedFolders: newExpanded,
       };
     }

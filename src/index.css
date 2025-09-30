@@ -82,3 +82,105 @@ input:focus, textarea:focus {
   background-color: #007bff;
   color: #fff;
 }
+
+/* 操作按钮（导入/导出） */
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background-color: #fff;
+  color: #374151;
+  white-space: nowrap;
+  user-select: none;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.05s ease;
+}
+
+.action-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 覆盖全局 hover 衰减 */
+.action-btn:hover {
+  opacity: 1;
+}
+
+.action-btn:active {
+  transform: translateY(1px);
+}
+
+/* 导入按钮（紫色系） */
+.action-btn--import {
+  color: #6d28d9;            /* violet-700 */
+  background-color: #f5f3ff; /* violet-50 */
+  border-color: #c4b5fd;     /* violet-300 */
+  box-shadow: 0 1px 2px rgba(109, 40, 217, 0.08);
+}
+
+.action-btn--import:hover {
+  background-color: #ede9fe; /* violet-100 */
+  box-shadow: 0 2px 6px rgba(109, 40, 217, 0.15);
+}
+
+.action-btn--import:focus {
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.35);
+}
+
+/* 导出按钮（绿色系） */
+.action-btn--export {
+  color: #047857;            /* emerald-700 */
+  background-color: #ecfdf5; /* emerald-50 */
+  border-color: #6ee7b7;     /* emerald-300 */
+  box-shadow: 0 1px 2px rgba(4, 120, 87, 0.08);
+}
+
+.action-btn--export:hover {
+  background-color: #d1fae5; /* emerald-100 */
+  box-shadow: 0 2px 6px rgba(4, 120, 87, 0.15);
+}
+
+.action-btn--export:focus {
+  box-shadow: 0 0 0 3px rgba(110, 231, 183, 0.35);
+}
+
+/* 图标按钮（用于导入/导出） */
+.icon-btn {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background-color: #fff;
+  color: #374151;
+  box-shadow: 0 1px 2px rgba(2, 6, 23, 0.06);
+  transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.05s ease;
+}
+
+.icon-btn svg { width: 18px; height: 18px; }
+
+.icon-btn:hover { box-shadow: 0 2px 6px rgba(2, 6, 23, 0.12); }
+.icon-btn:active { transform: translateY(1px); }
+
+.icon-btn--import {
+  color: #6d28d9;            /* violet-700 */
+  background-color: #f5f3ff; /* violet-50 */
+  border-color: #c4b5fd;     /* violet-300 */
+}
+.icon-btn--import:hover { background-color: #ede9fe; }
+.icon-btn--import:focus { box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.35); }
+
+.icon-btn--export {
+  color: #047857;            /* emerald-700 */
+  background-color: #ecfdf5; /* emerald-50 */
+  border-color: #6ee7b7;     /* emerald-300 */
+}
+.icon-btn--export:hover { background-color: #d1fae5; }
+.icon-btn--export:focus { box-shadow: 0 0 0 3px rgba(110, 231, 183, 0.35); }

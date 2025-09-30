@@ -23,9 +23,13 @@ export class ImportManager {
         // @ts-ignore TypeScript可能不识别name属性
         const name = handle.name;
         
-        // 跳过以点(.)开头的文件夹（隐藏文件夹）
+        // 跳过以点(.)开头的文件/文件夹（隐藏项），但保留 .resources 目录用于图片处理
         if (name.startsWith('.')) {
-          continue;
+          if (handle.kind === 'directory' && name === '.resources') {
+            // 保留 .resources 目录，后续分支中进行递归处理
+          } else {
+            continue;
+          }
         }
         
         if (handle.kind === 'file') {
@@ -76,6 +80,85 @@ export class ImportManager {
     return files;
   }
   
+  // 规范化路径为正斜杠
+  private static normalizePosix(p: string): string {
+    return p.replace(/\\/g, '/');
+  }
+
+  // 基于笔记所在目录解析相对路径（处理 ./ 和 ../）
+  private static resolveRelative(baseDir: string, relPath: string): string {
+    const base = baseDir ? baseDir.split('/').filter(Boolean) : [];
+    const parts = relPath.split('/').filter(s => s.length > 0);
+    const stack = [...base];
+    for (const seg of parts) {
+      if (seg === '.') continue;
+      if (seg === '..') { if (stack.length) stack.pop(); continue; }
+      stack.push(seg);
+    }
+    return stack.join('/');
+  }
+
+  // 新版图片路径替换：支持相对路径解析与 <img> 标签
+  private static replaceImagePathsV2(content: string, uploadedImages: Record<string, string>, noteDirPath?: string): string {
+    try {
+      const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+      const imgTagRegex = /<img[^>]*src=[\"']([^\"']+)[\"'][^>]*>/gi;
+
+      const replaceOne = (altText: string, rawPath: string, originalMatch: string): string => {
+        const normalized = this.normalizePosix(rawPath);
+        const tryKeys: string[] = [];
+
+        // 原始路径（规范化）
+        tryKeys.push(normalized);
+
+        // 去掉前导 ./
+        tryKeys.push(normalized.replace(/^(\.\/)+/, ''));
+
+        // 基于笔记所在目录解析 ../ 等相对路径
+        if (noteDirPath) {
+          const resolved = this.resolveRelative(noteDirPath, normalized);
+          tryKeys.push(resolved);
+        }
+
+        // .resources/images 特殊处理：如果路径中包含该段，尝试按文件名匹配
+        const fileName = normalized.split('/').pop();
+        const containsResources = normalized.includes('.resources/images/');
+
+        for (const key of tryKeys) {
+          if (uploadedImages[key]) {
+            const url = uploadedImages[key];
+            return `![${altText}](${url})`;
+          }
+        }
+
+        if (containsResources && fileName) {
+          const matchKey = Object.keys(uploadedImages)
+            .find(k => this.normalizePosix(k).endsWith(`/.resources/images/${fileName}`) || this.normalizePosix(k).endsWith(`/images/${fileName}`));
+          if (matchKey) {
+            const url = uploadedImages[matchKey];
+            return `![${altText}](${url})`;
+          }
+        }
+
+        return originalMatch;
+      };
+
+      // 先替换 Markdown 图片语法
+      let replaced = content.replace(imageRegex, (match, altText, imagePath) => replaceOne(altText, imagePath, match));
+
+      // 再替换 HTML <img> 标签中的 src
+      replaced = replaced.replace(imgTagRegex, (match, src) => {
+        const replacedMarkdown = replaceOne('', src, match);
+        const urlMatch = replacedMarkdown.match(/\(([^)]+)\)/);
+        const url = urlMatch ? urlMatch[1] : src;
+        return match.replace(src, url);
+      });
+
+      return replaced;
+    } catch {
+      return content;
+    }
+  }
   /**
    * 递归获取文件夹中的所有文件夹（包括空文件夹）
    * @param dirHandle 文件夹句柄
@@ -121,62 +204,45 @@ export class ImportManager {
    * @param existingNotes 现有的笔记列表
    * @returns 返回重复笔记的信息，如果没有重复则返回null
    */
-  private static checkExistingNote(fileName: string, existingNotes: any[]): { note: any; relativePath: string } | null {
-    // 生成对应的文件路径（.json格式）
-    const noteFilePath = fileName.endsWith('.json') ? fileName : `${fileName}.json`;
-    
-    // 从文件路径中移除第一层目录，因为导入时第一层路径被忽略
-    const pathParts = noteFilePath.split('/');
-    let relativePath = noteFilePath; // 默认使用完整路径
-    if (pathParts.length > 1) {
-      // 移除第一层目录
-      relativePath = pathParts.slice(1).join('/');
-    }
-    
-    console.log('Checking for existing note:', { fileName, noteFilePath, relativePath, existingNotesCount: existingNotes.length });
-    
-    // 检查是否已存在同名笔记（通过相对路径匹配）
+  private static checkExistingNote(fileName: string, existingNotes: any[]): { note: any; relativePath: string; fullPath: string } | null {
+    // 生成对应的文件路径（统一为 POSIX 格式并确保 .json 扩展名）
+    const noteFilePath = (fileName.endsWith('.json') ? fileName : `${fileName}.json`).replace(/\\/g, '/');
+
+    console.log('Checking for existing note (exact path match):', { fileName, noteFilePath, existingNotesCount: existingNotes.length });
+
+    // 直接用完整路径进行匹配，避免误删/误判
     for (const note of existingNotes) {
       if (!note.filePath) continue;
-      
-      // 从现有笔记路径中也移除第一层目录进行比较
-      const existingPathParts = note.filePath.split('/');
-      let existingRelativePath = note.filePath; // 默认使用完整路径
-      if (existingPathParts.length > 1) {
-        // 移除第一层目录
-        existingRelativePath = existingPathParts.slice(1).join('/');
-      }
-      
-      console.log('Comparing paths:', { 
-        importPath: relativePath, 
-        existingPath: existingRelativePath,
+      const existingFullPath = String(note.filePath).replace(/\\/g, '/');
+
+      console.log('Comparing exact paths:', {
         importFullPath: noteFilePath,
-        existingFullPath: note.filePath
+        existingFullPath,
       });
-      
-      // 比较相对路径
-      if (existingRelativePath === relativePath) {
-        console.log('Found existing note:', note);
-        return { note, relativePath };
+
+      if (existingFullPath === noteFilePath) {
+        console.log('Found existing note by exact path:', note);
+        return { note, relativePath: noteFilePath, fullPath: existingFullPath };
       }
     }
-    
-    console.log('No existing note found for:', fileName);
+
+    console.log('No existing note found for exact path:', fileName);
     return null;
   }
   
   /**
    * 显示覆盖确认对话框
    * @param fileName 文件名
+   * @param fullPath 完整路径
    * @returns 用户是否选择覆盖
    */
-  private static async showOverwriteConfirmation(fileName: string): Promise<boolean> {
+  private static async showOverwriteConfirmation(fileName: string, fullPath: string): Promise<boolean> {
     console.log('Showing overwrite confirmation for:', fileName);
     return new Promise((resolve) => {
       // 更新进度提示为确认对话框
       this.updateProgressAlert(
         '笔记已存在', 
-        `笔记 "${fileName}" 已存在，是否覆盖？`, 
+        `笔记 "${fileName}" 已存在，完整路径: ${fullPath}\n是否覆盖？`, 
         'warning'
       );
       
@@ -209,6 +275,7 @@ export class ImportManager {
         `;
         confirmButton.onclick = () => {
           console.log('User chose to overwrite:', fileName);
+          this.hideProgressAlert();
           resolve(true);
         };
         
@@ -225,6 +292,7 @@ export class ImportManager {
         `;
         cancelButton.onclick = () => {
           console.log('User chose to skip:', fileName);
+          this.hideProgressAlert();
           resolve(false);
         };
         
@@ -244,8 +312,10 @@ export class ImportManager {
    * @param editor BlockNote编辑器实例
    * @param existingNotes 现有的笔记列表（可选）
    */
-  static async importMarkdownNotes(dispatch: any, editor: any, existingNotes: any[] = []): Promise<void> {
+  static async importMarkdownNotes(dispatch: any, editor: any, existingNotes: any[] = []): Promise<string | null> {
     console.log('Starting import with existing notes count:', existingNotes.length);
+    let lastImportedNotePath: string | null = null;
+    
     try {
       // 请求用户选择要导入的文件夹
       let directoryHandles: FileSystemDirectoryHandle[] = [];
@@ -260,7 +330,7 @@ export class ImportManager {
         console.warn('用户取消了文件夹选择或浏览器不支持showDirectoryPicker');
         this.showProgressAlert('导入失败', '请选择包含Markdown文件的文件夹。注意：此功能需要现代浏览器支持（如Chrome 86+）。', 'error');
         setTimeout(() => this.hideProgressAlert(), 3000);
-        return;
+        return null;
       }
 
       // 收集所有要处理的文件
@@ -331,7 +401,7 @@ export class ImportManager {
       if (markdownFiles.length === 0 && allFolderPaths.length === 0) {
         this.showProgressAlert('导入失败', '未找到任何Markdown文件或文件夹。请选择包含.md或.txt文件的文件夹。', 'error');
         setTimeout(() => this.hideProgressAlert(), 3000);
-        return;
+        return null;
       }
       
       // 显示导入进度提示
@@ -417,15 +487,19 @@ export class ImportManager {
         const existingNoteInfo = this.checkExistingNote(fileName, existingNotes);
         if (existingNoteInfo) {
           console.log('Duplicate found, showing overwrite confirmation for:', fileName);
-          // 显示覆盖确认提示
-          const shouldOverwrite = await this.showOverwriteConfirmation(fileName.split('/').pop() || fileName);
+          // 显示覆盖确认提示，传入完整路径
+          const shouldOverwrite = await this.showOverwriteConfirmation(
+            fileName.split('/').pop() || fileName,
+            existingNoteInfo.fullPath
+          );
           console.log('Overwrite confirmation result:', shouldOverwrite);
           if (!shouldOverwrite) {
             console.log('User chose to skip duplicate:', fileName);
             continue; // 跳过此文件
           } else {
             console.log('User chose to overwrite duplicate:', fileName);
-            // 如果选择覆盖，先删除现有笔记，再创建新笔记
+            // 如果选择覆盖，先删除现有笔记
+            console.log('Deleting existing note with ID:', existingNoteInfo.note.id);
             dispatch({
               type: 'DELETE_NOTE',
               payload: existingNoteInfo.note.id
@@ -478,8 +552,9 @@ export class ImportManager {
             }
           }
           
-          // 替换Markdown中的图片路径为上传后的URL
-          content = this.replaceImagePaths(content, updatedUploadedImages);
+          // 替换Markdown中的图片路径为上传后的URL（基于笔记所在目录解析相对路径）
+          const noteDirPath = path.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+          content = this.replaceImagePathsV2(content, updatedUploadedImages, noteDirPath);
           
           console.log('Content after image replacement:', content);
           
@@ -516,23 +591,39 @@ export class ImportManager {
           const noteFilePath = fileName.endsWith('.json') ? fileName : `${fileName}.json`;
           console.log('Creating note with:', { noteTitle, noteFilePath });
           
-          // 创建笔记并等待其在状态中建立完成
-          await new Promise((resolve) => {
-            dispatch({
-              type: 'ADD_NOTE_WITH_FILE',
-              payload: {
-                title: noteTitle,  // 使用文件名作为标题
-                content: blocks,
-                isFolder: false,
-                filePath: noteFilePath  // 使用正确的文件路径
-              }
-            });
-            
-            // 等待笔记在状态中建立完成
-            setTimeout(() => {
-              resolve(null);
-            }, 50);
+          // 创建笔记
+          console.log('Dispatching ADD_NOTE_WITH_FILE action');
+          dispatch({
+            type: 'ADD_NOTE_WITH_FILE',
+            payload: {
+              title: noteTitle,  // 使用文件名作为标题
+              content: blocks,
+              isFolder: false,
+              filePath: noteFilePath  // 使用正确的文件路径
+            }
           });
+          console.log('ADD_NOTE_WITH_FILE action dispatched');
+          
+          // 等待状态更新完成
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // 如果是覆盖操作，导入完成后定位到该笔记
+          if (existingNoteInfo) {
+            console.log('This is an overwrite operation, waiting for note to be created');
+            // 等待更长时间确保笔记创建完成
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
+            // 直接通过ID选择笔记，而不是通过路径
+            console.log('Selecting overwritten note by ID');
+            // 由于我们无法直接获取新创建笔记的ID，我们需要通过路径查找
+            setTimeout(() => {
+              dispatch({
+                type: 'SELECT_NOTE_AND_EXPAND_BY_PATH',
+                payload: noteFilePath
+              });
+              console.log('SELECT_NOTE_AND_EXPAND_BY_PATH dispatched');
+            }, 50);
+          }
           
           console.log(`成功导入笔记: ${fileName}`);
         } catch (error) {
@@ -569,6 +660,9 @@ export class ImportManager {
       setTimeout(() => {
         this.hideProgressAlert();
       }, 3000);
+      
+      // 返回最后一个导入的笔记路径（如果是覆盖操作）
+      return lastImportedNotePath;
     } catch (error) {
       console.error('导入笔记失败:', error);
       this.updateProgressAlert('导入失败', '导入笔记失败: ' + (error as Error).message, 'error');

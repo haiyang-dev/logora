@@ -83,7 +83,7 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
     const result = buildTree(null);
     // console.log('构建完成的树:', result);
     return result;
-  }, [state.notes]);
+  }, [state.notes]); // 只依赖state.notes
 
   // 将 TreeNode 转换为 NoteTreeItem（添加 level 信息）
   const treeItems = useMemo(() => {
@@ -105,7 +105,7 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
     const items = convertToTreeItem(tree);
     // console.log('生成的treeItems:', items);
     return items;
-  }, [tree, state.notes, state.expandedFolders]);
+  }, [tree, state.notes, state.expandedFolders]); // 依赖tree, state.notes, state.expandedFolders
 
   // 处理创建新项目
   const handleCreateNote = useCallback((type: 'note' | 'folder', parentId?: string) => {
@@ -133,6 +133,8 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
   const handleSelectNote = useCallback((noteId: string, e: React.MouseEvent) => {
     try {
       const note = state.notes[noteId];
+      console.log('handleSelectNote called with noteId:', noteId);
+      console.log('Note found:', note);
       if (!note) {
         console.warn('Note not found:', noteId);
         return;
@@ -142,8 +144,10 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
       e.stopPropagation();
       
       if (note.isFolder) {
+        console.log('Toggling folder:', noteId);
         dispatch({ type: 'TOGGLE_FOLDER', payload: noteId });
       } else {
+        console.log('Selecting note:', noteId);
         dispatch({ type: 'SELECT_NOTE', payload: noteId });
       }
     } catch (error) {
@@ -345,6 +349,68 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
     }
   }, [searchQuery, dispatch]);
 
+  // 处理导入完成后选择笔记
+  const handleImportComplete = useCallback((noteFilePath: string) => {
+    console.log('handleImportComplete called with noteFilePath:', noteFilePath);
+    
+    // 查找对应的笔记
+    const note = Object.values(state.notes).find(n => n.filePath === noteFilePath);
+    console.log('Found note for import completion:', note);
+    
+    if (note && !note.isFolder) {
+      console.log('Selecting imported note:', note.id);
+      dispatch({ type: 'SELECT_NOTE', payload: note.id });
+      
+      // 展开所有父级文件夹
+      const foldersToExpand: string[] = [];
+      let currentNoteId: string | undefined = note.parentId;
+      
+      while (currentNoteId) {
+        const parentNote = state.notes[currentNoteId];
+        if (parentNote && parentNote.isFolder) {
+          foldersToExpand.push(currentNoteId);
+          currentNoteId = parentNote.parentId;
+        } else {
+          break;
+        }
+      }
+      
+      if (foldersToExpand.length > 0) {
+        console.log('Expanding parent folders:', foldersToExpand);
+        dispatch({ type: 'EXPAND_FOLDERS', payload: foldersToExpand });
+      }
+    }
+  }, [state.notes, dispatch]);
+
+  // 处理导入按钮点击
+  const handleImportClick = useCallback(async () => {
+    try {
+      if (editor) {
+        const existingNotes = Object.values(state.notes || {});
+        const lastImportedNotePath = await ImportManager.importMarkdownNotes(dispatch, editor, existingNotes);
+        
+        // 导入完成后，强制刷新状态
+        console.log('Import completed, forcing state refresh');
+        dispatch({ type: 'FORCE_UPDATE' });
+        
+        // 如果有最后导入的笔记路径，选择它
+        if (lastImportedNotePath) {
+          console.log('Last imported note path:', lastImportedNotePath);
+          // 等待状态更新完成
+          setTimeout(() => {
+            console.log('Selecting last imported note');
+            handleImportComplete(lastImportedNotePath);
+          }, 500);
+        }
+      } else {
+        alert('编辑器未准备好，请稍后再试');
+      }
+    } catch (error) {
+      console.error('导入Markdown笔记失败:', error);
+      alert('导入Markdown笔记失败: ' + (error as Error).message);
+    }
+  }, [editor, state.notes, dispatch, handleImportComplete]);
+
   // 处理导出功能
   const handleExportNote = useCallback(async () => {
     // 根据需求，移除单个笔记导出功能
@@ -453,42 +519,26 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
       {/* 侧边栏头部 */}
       <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', borderBottom: '1px solid #e5e7eb'}}>
         <h2 style={{fontSize: '18px', fontWeight: '600', color: '#111827'}}>Logora</h2>
-        <div style={{display: 'flex', gap: '8px'}}>
-          {/* 导入Markdown笔记按钮 */}
+        {/* 导入/导出按钮移到这里，放在搜索框上方 */}
+        <div style={{display: 'flex', gap: '6px'}}>
           <button
-            onClick={async () => {
-              try {
-                if (editor) {
-                  // 传递现有的笔记列表用于检查重复
-                  const existingNotes = Object.values(state.notes || {});
-                  console.log('Existing notes for duplicate check:', existingNotes);
-                  await ImportManager.importMarkdownNotes(dispatch, editor, existingNotes);
-                } else {
-                  alert('编辑器未准备好，请稍后再试');
-                }
-              } catch (error) {
-                console.error('导入Markdown笔记失败:', error);
-                alert('导入Markdown笔记失败: ' + (error as Error).message);
-              }
+            onClick={handleImportClick}
+            style={{
+              padding: '6px',
+              color: '#374151',
+              backgroundColor: 'transparent',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
             }}
-            style={
-              {
-                padding: '6px 12px',
-                fontSize: '14px',
-                color: '#8b5cf6',
-                backgroundColor: 'transparent',
-                border: '1px solid #8b5cf6',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }
-            }
+            title="导入文件夹"
             onMouseEnter={(e) => {
               const target = e.target as HTMLButtonElement;
-              target.style.backgroundColor = '#ede9fe';
+              target.style.backgroundColor = '#f3f4f6';
             }}
             onMouseLeave={(e) => {
               const target = e.target as HTMLButtonElement;
@@ -496,12 +546,10 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
             }}
           >
             <svg style={{width: '16px', height: '16px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
-            导入文件夹
           </button>
           
-          {/* 导出所有笔记到文件夹按钮 */}
           <button
             onClick={async () => {
               try {
@@ -515,24 +563,22 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
                 alert('导出所有笔记失败: ' + (error as Error).message);
               }
             }}
-            style={
-              {
-                padding: '6px 12px',
-                fontSize: '14px',
-                color: '#10b981',
-                backgroundColor: 'transparent',
-                border: '1px solid #10b981',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }
-            }
+            style={{
+              padding: '6px',
+              color: '#374151',
+              backgroundColor: 'transparent',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+            title="导出所有笔记"
             onMouseEnter={(e) => {
               const target = e.target as HTMLButtonElement;
-              target.style.backgroundColor = '#dcfce7';
+              target.style.backgroundColor = '#f3f4f6';
             }}
             onMouseLeave={(e) => {
               const target = e.target as HTMLButtonElement;
@@ -540,17 +586,17 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
             }}
           >
             <svg style={{width: '16px', height: '16px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
-            导出所有笔记
           </button>
         </div>
       </div>
       
       {/* 搜索框 */}
-      <div style={{padding: '16px', borderBottom: '1px solid #e5e7eb'}}>
-        <div style={{position: 'relative'}}>
-          <input
+        <div style={{padding: '12px 16px', borderBottom: '1px solid #e5e7eb'}}>
+          <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+            <div style={{position: 'relative', flex: 1}}>
+            <input
             type="text"
             placeholder="搜索笔记..."
             value={searchQuery}
@@ -584,24 +630,26 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
               e.target.style.borderColor = '#e5e7eb';
               e.target.style.boxShadow = 'none';
             }}
-          />
-          <svg
-            style={{
-              position: 'absolute',
-              left: '12px',
-              top: '10px',
-              width: '16px',
-              height: '16px',
-              color: '#9ca3af'
-            }}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
+            />
+            <svg
+              style={{
+                position: 'absolute',
+                left: '12px',
+                top: '10px',
+                width: '16px',
+                height: '16px',
+                color: '#9ca3af'
+              }}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            </div>
+          </div>
         </div>
-      </div>
+
       
       {/* 创建新项目表单 */}
       {isCreating && (
@@ -1014,7 +1062,7 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
               }}
             >
               <svg style={{width: '16px', height: '16px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 01-2-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
               新建笔记{contextMenu.isFolder ? `到 "${state.notes[contextMenu.noteId!]?.title}"` : ''}
             </button>
@@ -1479,7 +1527,6 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
     </div>
   );
 }, (prevProps, nextProps) => {
-  // Sidebar 组件没有 props，所以总是返回 false 以确保组件能够重新渲染
-  // 这样可以确保当 state.notes 发生变化时，组件能够正确地重新渲染
+  // 总是返回false以确保组件能够重新渲染
   return false;
 });
