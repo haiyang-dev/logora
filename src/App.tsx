@@ -1,14 +1,13 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { EditorProvider, useEditor } from './context/EditorContext';
 import { Sidebar } from './components/Sidebar';
 import { Editor } from './components/Editor';
 import { ResizableSplitter } from './components/ResizableSplitter';
-import { StorageManager } from './utils/storage';
 import { FileSystemManager } from './utils/fileSystem';
 
 function AppContent() {
-  const { state, dispatch } = useApp();
+  const { dispatch } = useApp();
   const { editor } = useEditor();
 
   // 初始化时加载文件系统中的笔记
