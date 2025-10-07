@@ -371,36 +371,35 @@ function createImageElement(alt: string, url: string): MarkdownElement {
 }
 
 /**
- * 检查是否为表格行
+ * 检查是否为表格行 - 严格检测标准表格格式
  * @param line 行内容
  * @returns 是否为表格行
  */
 function isTableRow(line: string): boolean {
   const trimmed = line.trim();
-  // 更宽松的检测：包含管道符号即可
-  return trimmed.includes('|') && trimmed.length > 1;
+  // 严格检测：必须以|开头和结尾，且包含至少一个|分割的内容
+  return trimmed.startsWith('|') && trimmed.endsWith('|') && trimmed.includes('| |');
 }
 
 /**
- * 检查是否为表格分隔行
+ * 检查是否为表格分隔行 - 严格检测标准分隔符格式
  * @param line 行内容
  * @returns 是否为表格分隔行
  */
 function isTableSeparator(line: string): boolean {
   const trimmed = line.trim();
-  // 更宽松的分隔符检测：包含管道符号和破折号
-  return trimmed.includes('|') &&
-         trimmed.includes('-') &&
-         /[-\s]{2,}/.test(trimmed); // 至少包含2个破折号或空格的组合
+  // 严格检测：必须是标准的分隔符格式 |---|---|---
+  return /^\|[\s\-\|:]+\|$/.test(trimmed);
 }
 
 /**
  * 解析表格内容
  * @param lines 表格行数组
- * @returns JSON格式的表格元素
+ * @returns JSON格式的表格元素，如果不是标准表格则返回null
  */
-function createTableElement(lines: string[]): MarkdownElement {
+function createTableElement(lines: string[]): MarkdownElement | null {
   const rows: string[][] = [];
+  let hasSeparator = false;
 
   for (const line of lines) {
     const trimmedLine = line.trim();
@@ -410,49 +409,32 @@ function createTableElement(lines: string[]): MarkdownElement {
       continue;
     }
 
-    // 更宽松的表格行检测
+    // 严格检测表格行
     if (isTableRow(trimmedLine)) {
-      // 如果是分隔符行，跳过
+      // 检查是否是分隔符行
       if (isTableSeparator(trimmedLine)) {
+        hasSeparator = true;
         continue;
       }
 
-      try {
-        // 处理不完整的表格行
-        let processedLine = trimmedLine;
-
-        // 确保行以|开头和结尾
-        if (!processedLine.startsWith('|')) {
-          processedLine = '|' + processedLine;
-        }
-        if (!processedLine.endsWith('|')) {
-          processedLine = processedLine + '|';
-        }
-
-        // 解析表格行，移除首尾的|并按|分割
-        const cells = processedLine.slice(1, -1).split('|').map(cell => cell.trim());
-
-        // 只添加非空行或有有效内容的行
-        if (cells.length > 0 && (cells.some(cell => cell.length > 0) || rows.length > 0)) {
-          rows.push(cells);
-        }
-      } catch (error) {
-        console.warn('解析表格行时出错:', trimmedLine, error);
-        continue;
-      }
+      // 解析表格行
+      const cells = trimmedLine.slice(1, -1).split('|').map(cell => cell.trim());
+      rows.push(cells);
     }
   }
 
-  // 如果没有有效行，返回空表格
+  // 如果没有找到标准的表格数据行，返回null让调用者处理
   if (rows.length === 0) {
-    return {
-      type: 'table',
-      rows: [['', '']] // 默认创建一个2列的空表格
-    };
+    return null;
   }
 
-  // 如果只有一行，可能是标题行，添加空的数据行
-  if (rows.length === 1) {
+  // 如果只有标题行没有分隔符，返回null让调用者当作普通文本处理
+  if (rows.length === 1 && !hasSeparator) {
+    return null;
+  }
+
+  // 如果只有标题行但有分隔符，添加空数据行
+  if (rows.length === 1 && hasSeparator) {
     const emptyRow = rows[0].map(() => '');
     rows.push(emptyRow);
   }
@@ -506,7 +488,13 @@ export function parseMarkdownToJSON(markdown: string): MarkdownElement[] {
     if (line.startsWith('```')) {
       // 如果在表格中，先处理表格
       if (inTable) {
-        elements.push(createTableElement(tableLines));
+        const tableElement = createTableElement(tableLines);
+        if (tableElement) {
+          elements.push(tableElement);
+        } else {
+          // 把不标准的表格当作文本处理
+          elements.push(createParagraphElement(tableLines.join('\n')));
+        }
         inTable = false;
         tableLines = [];
       }
@@ -544,7 +532,13 @@ export function parseMarkdownToJSON(markdown: string): MarkdownElement[] {
       continue;
     } else if (inTable) {
       // 结束表格
-      elements.push(createTableElement(tableLines));
+      const tableElement = createTableElement(tableLines);
+      if (tableElement) {
+        elements.push(tableElement);
+      } else {
+        // 把不标准的表格当作文本处理
+        elements.push(createParagraphElement(tableLines.join('\n')));
+      }
       inTable = false;
       tableLines = [];
     }
@@ -628,7 +622,13 @@ export function parseMarkdownToJSON(markdown: string): MarkdownElement[] {
   
   // 处理文件末尾可能未关闭的表格
   if (inTable) {
-    elements.push(createTableElement(tableLines));
+    const tableElement = createTableElement(tableLines);
+    if (tableElement) {
+      elements.push(tableElement);
+    } else {
+      // 把不标准的表格当作文本处理
+      elements.push(createParagraphElement(tableLines.join('\n')));
+    }
   }
   
   return elements;
