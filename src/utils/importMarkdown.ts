@@ -528,6 +528,9 @@ export class ImportManager {
         isOverwrite: boolean;
       }> = [];
 
+      // 重置计数器用于批量处理
+      let processedCount = 0;
+
       // 第一步：解析所有Markdown文件，准备批量创建
       for (let i = 0; i < notesToImport.length; i++) {
         const {fileHandle, path, fileName, shouldOverwrite, existingNoteInfo} = notesToImport[i];
