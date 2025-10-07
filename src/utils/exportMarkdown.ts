@@ -1,10 +1,11 @@
 // 导出功能工具类
 import { type Block } from '@blocknote/core';
 import { FileSystemManager } from './fileSystem';
+import { ProgressAlert } from './progressAlert';
 
 export class ExportManager {
-  // 用于存储进度提示框的引用
-  private static progressAlert: HTMLElement | null = null;
+  // 使用ProgressAlert实例
+  private static progressAlert = ProgressAlert.getInstance();
   
   /**
    * 导出所有笔记到用户选择的文件夹（无损Markdown版本）
@@ -20,8 +21,8 @@ export class ExportManager {
         exportDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
       } catch (error) {
         console.warn('用户取消了目录选择或浏览器不支持showDirectoryPicker');
-        this.showProgressAlert('导出失败', '请选择一个有效的导出目录。注意：此功能需要现代浏览器支持（如Chrome 86+）。', 'error');
-        setTimeout(() => this.hideProgressAlert(), 3000);
+        this.progressAlert.show('导出失败', '请选择一个有效的导出目录。注意：此功能需要现代浏览器支持（如Chrome 86+）。', 'error');
+        setTimeout(() => this.progressAlert.hide(), 3000);
         return;
       }
 
@@ -35,7 +36,7 @@ export class ExportManager {
       const imageFileNameMap = new Map<string, string>(); // 原始URL到导出文件名的映射
       
       // 显示导出进度提示
-      this.showProgressAlert('正在导出', '正在收集笔记和图片信息...', 'info');
+      this.progressAlert.show('正在导出', '正在收集笔记和图片信息...', 'info');
       
       // 先创建所有文件夹结构（包括空文件夹）
       for (const noteId in notes) {
@@ -70,7 +71,7 @@ export class ExportManager {
         if (note.isFolder) continue;
         
         // 更新进度提示
-        this.updateProgressAlert(`正在导出 (${processedNotes + 1}/${totalNotes})`, `正在处理: ${note.title}`, 'info');
+        this.progressAlert.update(`正在导出 (${processedNotes + 1}/${totalNotes})`, `正在处理: ${note.title}`, 'info');
         
         // 生成安全的文件名
         const safeFileName = note.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5-_]/g, '_');
@@ -131,23 +132,23 @@ ${markdownContent}`;
       }
       
       // 更新进度提示
-      this.updateProgressAlert('正在导出图片', `正在导出 ${imageUrls.size} 张图片...`, 'info');
+      this.progressAlert.update('正在导出图片', `正在导出 ${imageUrls.size} 张图片...`, 'info');
       
       // 导出所有图片并建立映射关系
       await this.exportImages(Array.from(imageUrls), imagesDirHandle, imageFileNameMap);
       
       // 显示完成提示
-      this.updateProgressAlert('导出完成', '所有笔记和图片已成功导出到选择的文件夹中！\n- 笔记按照原有文件夹结构保存\n- 空文件夹也已创建\n- 图片保存在 .resources/images/ 目录下', 'success');
-      
+      this.progressAlert.update('导出完成', '所有笔记和图片已成功导出到选择的文件夹中！\n- 笔记按照原有文件夹结构保存\n- 空文件夹也已创建\n- 图片保存在 .resources/images/ 目录下', 'success');
+
       // 3秒后自动关闭提示
       setTimeout(() => {
-        this.hideProgressAlert();
+        this.progressAlert.hide();
       }, 3000);
     } catch (error) {
       console.error('导出所有笔记失败:', error);
-      this.updateProgressAlert('导出失败', '导出所有笔记失败: ' + (error as Error).message, 'error');
+      this.progressAlert.update('导出失败', '导出所有笔记失败: ' + (error as Error).message, 'error');
       setTimeout(() => {
-        this.hideProgressAlert();
+        this.progressAlert.hide();
       }, 3000);
       throw error;
     }
@@ -278,7 +279,7 @@ ${markdownContent}`;
       for (const imageUrl of imageUrls) {
         try {
           // 更新进度提示
-          this.updateProgressAlert('正在导出图片', `正在导出图片 (${processedImages + 1}/${imageUrls.length})`, 'info');
+          this.progressAlert.update('正在导出图片', `正在导出图片 (${processedImages + 1}/${imageUrls.length})`, 'info');
           
           // 获取图片文件名
           const urlObj = new URL(imageUrl);
@@ -340,156 +341,4 @@ ${markdownContent}`;
     }
   }
   
-  /**
-   * 显示进度提示框
-   * @param title 标题
-   * @param message 消息内容
-   * @param type 提示类型 (success, error, info, warning)
-   */
-  private static showProgressAlert(title: string, message: string, type: string): void {
-    // 创建或更新提示框元素
-    let alertContainer = document.getElementById('export-alert-container');
-    if (!alertContainer) {
-      alertContainer = document.createElement('div');
-      alertContainer.id = 'export-alert-container';
-      alertContainer.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 10000;
-        min-width: 300px;
-        max-width: 500px;
-      `;
-      document.body.appendChild(alertContainer);
-    }
-    
-    // 创建提示框内容
-    const alertElement = document.createElement('div');
-    alertElement.style.cssText = `
-      background: ${type === 'success' ? '#d4edda' : type === 'error' ? '#f8d7da' : type === 'warning' ? '#fff3cd' : '#d1ecf1'};
-      border: 1px solid ${type === 'success' ? '#c3e6cb' : type === 'error' ? '#f5c6cb' : type === 'warning' ? '#ffeaa7' : '#bee5eb'};
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 12px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-      transform: translateX(0);
-      transition: transform 0.3s ease, opacity 0.3s ease;
-      opacity: 1;
-    `;
-    
-    // 添加标题
-    const titleElement = document.createElement('div');
-    titleElement.style.cssText = `
-      font-weight: bold;
-      margin-bottom: 8px;
-      color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : type === 'warning' ? '#856404' : '#0c5460'};
-    `;
-    titleElement.textContent = title;
-    alertElement.appendChild(titleElement);
-    
-    // 添加消息内容
-    const messageElement = document.createElement('div');
-    messageElement.style.cssText = `
-      color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : type === 'warning' ? '#856404' : '#0c5460'};
-      white-space: pre-wrap;
-      line-height: 1.5;
-    `;
-    messageElement.textContent = message;
-    alertElement.appendChild(messageElement);
-    
-    // 添加关闭按钮
-    const closeButton = document.createElement('button');
-    closeButton.style.cssText = `
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      background: none;
-      border: none;
-      font-size: 18px;
-      cursor: pointer;
-      color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : type === 'warning' ? '#856404' : '#0c5460'};
-    `;
-    closeButton.innerHTML = '&times;';
-    closeButton.onclick = () => {
-      alertElement.style.transform = 'translateX(100%)';
-      alertElement.style.opacity = '0';
-      setTimeout(() => {
-        if (alertElement.parentNode) {
-          alertElement.parentNode.removeChild(alertElement);
-        }
-      }, 300);
-    };
-    alertElement.appendChild(closeButton);
-    
-    // 保存引用以便更新
-    this.progressAlert = alertElement;
-    
-    // 添加到容器
-    alertContainer.appendChild(alertElement);
   }
-  
-  /**
-   * 更新进度提示框内容
-   * @param title 标题
-   * @param message 消息内容
-   * @param type 提示类型
-   */
-  private static updateProgressAlert(title: string, message: string, type: string): void {
-    if (this.progressAlert) {
-      // 更新样式
-      this.progressAlert.style.cssText = `
-        background: ${type === 'success' ? '#d4edda' : type === 'error' ? '#f8d7da' : type === 'warning' ? '#fff3cd' : '#d1ecf1'};
-        border: 1px solid ${type === 'success' ? '#c3e6cb' : type === 'error' ? '#f5c6cb' : type === 'warning' ? '#ffeaa7' : '#bee5eb'};
-        border-radius: 8px;
-        padding: 16px;
-        margin-bottom: 12px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        transform: translateX(0);
-        transition: transform 0.3s ease, opacity 0.3s ease;
-        opacity: 1;
-      `;
-      
-      // 更新标题和消息
-      const titleElement = this.progressAlert.querySelector('div:first-child');
-      const messageElement = this.progressAlert.querySelector('div:nth-child(2)');
-      
-      if (titleElement) {
-        titleElement.textContent = title;
-        (titleElement as HTMLElement).style.cssText = `
-          font-weight: bold;
-          margin-bottom: 8px;
-          color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : type === 'warning' ? '#856404' : '#0c5460'};
-        `;
-      }
-      
-      if (messageElement) {
-        messageElement.textContent = message;
-        (messageElement as HTMLElement).style.cssText = `
-          color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : type === 'warning' ? '#856404' : '#0c5460'};
-          white-space: pre-wrap;
-          line-height: 1.5;
-        `;
-      }
-    } else {
-      // 如果还没有创建提示框，则创建一个
-      this.showProgressAlert(title, message, type);
-    }
-  }
-  
-  /**
-   * 隐藏进度提示框
-   */
-  private static hideProgressAlert(): void {
-    if (this.progressAlert) {
-      // 淡出效果
-      this.progressAlert.style.transform = 'translateX(100%)';
-      this.progressAlert.style.opacity = '0';
-      setTimeout(() => {
-        if (this.progressAlert && this.progressAlert.parentNode) {
-          this.progressAlert.parentNode.removeChild(this.progressAlert);
-          this.progressAlert = null;
-        }
-      }, 300);
-    }
-  }
-}

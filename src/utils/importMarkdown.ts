@@ -2,10 +2,11 @@
 import { type Block } from '@blocknote/core';
 import { parseMarkdownToBlocks } from './markdownToBlocks';
 import { FileSystemManager } from './fileSystem';
+import { ProgressAlert } from './progressAlert';
 
 export class ImportManager {
-  // 用于存储进度提示框的引用
-  private static progressAlert: HTMLElement | null = null;
+  // 使用ProgressAlert实例
+  private static progressAlert = ProgressAlert.getInstance();
   
   /**
    * 递归获取文件夹中的所有Markdown文件
@@ -199,110 +200,150 @@ export class ImportManager {
   }
   
   /**
-   * 检查是否存在同名笔记
+   * 检查是否存在同名笔记（基于文件夹路径+笔记名，忽略扩展名）
    * @param fileName 文件名（包含路径）
    * @param existingNotes 现有的笔记列表
    * @returns 返回重复笔记的信息，如果没有重复则返回null
    */
   private static checkExistingNote(fileName: string, existingNotes: any[]): { note: any; relativePath: string; fullPath: string } | null {
-    // 生成对应的文件路径（统一为 POSIX 格式并确保 .json 扩展名）
-    const noteFilePath = (fileName.endsWith('.json') ? fileName : `${fileName}.json`).replace(/\\/g, '/');
+    // 统一路径分隔符为正斜杠
+    const normalizedFileName = fileName.replace(/\\/g, '/');
 
-    console.log('Checking for existing note (exact path match):', { fileName, noteFilePath, existingNotesCount: existingNotes.length });
+    // 移除所有扩展名，只保留基础文件名
+    const importBasePath = normalizedFileName.replace(/\.[^.]*$/, '');
 
-    // 直接用完整路径进行匹配，避免误删/误判
-    for (const note of existingNotes) {
-      if (!note.filePath) continue;
-      const existingFullPath = String(note.filePath).replace(/\\/g, '/');
+    console.log('Checking for existing note:', {
+      originalFileName: fileName,
+      normalizedFileName,
+      importBasePath,
+      existingNotesCount: existingNotes.length
+    });
 
-      console.log('Comparing exact paths:', {
-        importFullPath: noteFilePath,
-        existingFullPath,
-      });
+    // 打印所有现有笔记的完整结构
+    console.log('=== 所有现有笔记结构 ===');
+    this.printAllNotes(existingNotes, 0);
 
-      if (existingFullPath === noteFilePath) {
-        console.log('Found existing note by exact path:', note);
-        return { note, relativePath: noteFilePath, fullPath: existingFullPath };
-      }
+    // 递归查找基础路径匹配的文件
+    const result = this.findNoteByBasePath(existingNotes, importBasePath, fileName, normalizedFileName);
+    if (result) {
+      return result;
     }
 
-    console.log('No existing note found for exact path:', fileName);
+    console.log('No duplicate found for:', fileName);
     return null;
   }
-  
+
   /**
-   * 显示覆盖确认对话框
+   * 递归查找匹配基础路径的笔记
+   */
+  private static findNoteByBasePath(notes: any[], importBasePath: string, fileName: string, normalizedFileName: string): { note: any; relativePath: string; fullPath: string } | null {
+    for (const note of notes) {
+      // 递归检查子节点
+      if (note.children && note.children.length > 0) {
+        const result = this.findNoteByBasePath(note.children, importBasePath, fileName, normalizedFileName);
+        if (result) {
+          return result;
+        }
+      }
+
+      // 跳过文件夹和没有路径的笔记
+      if (!note.filePath || note.isFolder) continue;
+
+      // 统一路径分隔符
+      const existingPath = String(note.filePath).replace(/\\/g, '/');
+
+      // 移除现有文件的扩展名
+      const existingBasePath = existingPath.replace(/\.[^.]*$/, '');
+
+      console.log(`=== 比对 ${importBasePath} vs ${existingBasePath} ===`);
+      console.log('比对源:', {
+        original: fileName,
+        normalized: normalizedFileName,
+        base: importBasePath
+      });
+      console.log('比对目标:', {
+        noteId: note.id,
+        noteTitle: note.title,
+        originalPath: note.filePath,
+        normalized: existingPath,
+        base: existingBasePath
+      });
+
+      // 基础路径匹配就是重复
+      if (importBasePath === existingBasePath) {
+        console.log('✅ 找到重复！', {
+          importBasePath,
+          existingBasePath,
+          noteId: note.id,
+          noteTitle: note.title
+        });
+        return { note, relativePath: importBasePath + '.json', fullPath: existingPath };
+      } else {
+        console.log('❌ 不匹配');
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 递归打印所有笔记结构
+   */
+  private static printAllNotes(notes: any[], indent: number): void {
+    const spaces = '  '.repeat(indent);
+    notes.forEach(note => {
+      console.log(`${spaces}- ${note.title} (${note.isFolder ? 'folder' : 'note'}) path: ${note.filePath}`);
+      if (note.children && note.children.length > 0) {
+        this.printAllNotes(note.children, indent + 1);
+      }
+    });
+  }
+
+  /**
+   * 确认是否覆盖重复文件
    * @param fileName 文件名
    * @param fullPath 完整路径
+   * @param dispatch Redux dispatch函数
    * @returns 用户是否选择覆盖
    */
-  private static async showOverwriteConfirmation(fileName: string, fullPath: string): Promise<boolean> {
-    console.log('Showing overwrite confirmation for:', fileName);
+  private static async confirmOverwriteDuplicate(fileName: string, fullPath: string, dispatch: any): Promise<boolean> {
+    console.log('Confirming overwrite for duplicate file:', fileName);
+
+    // 先定位到目录树
+    dispatch({
+      type: 'SELECT_NOTE_AND_EXPAND_BY_PATH',
+      payload: fullPath
+    });
+
+    // 等待目录树定位完成
+    await new Promise(resolve => setTimeout(resolve, 50));
+
     return new Promise((resolve) => {
-      // 更新进度提示为确认对话框
-      this.updateProgressAlert(
-        '笔记已存在', 
-        `笔记 "${fileName}" 已存在，完整路径: ${fullPath}\n是否覆盖？`, 
+      // 显示确认弹窗
+      this.progressAlert.update(
+        '发现重复文件',
+        `检测到重复文件：${fullPath}\n是否覆盖现有文件？`,
         'warning'
       );
-      
-      // 添加确认和取消按钮
-      if (this.progressAlert) {
-        // 清除现有内容
-        while (this.progressAlert.children.length > 2) { // 保留标题和消息元素
-          this.progressAlert.removeChild(this.progressAlert.lastChild!);
+
+      // 添加按钮
+      this.progressAlert.addButtons([
+        {
+          text: '跳过',
+          style: 'secondary',
+          onClick: () => {
+            this.progressAlert.hide();
+            resolve(false);
+          }
+        },
+        {
+          text: '覆盖',
+          style: 'primary',
+          onClick: () => {
+            this.progressAlert.hide();
+            resolve(true);
+          }
         }
-        
-        // 添加按钮容器
-        const buttonContainer = document.createElement('div');
-        buttonContainer.style.cssText = `
-          display: flex;
-          gap: 10px;
-          justify-content: flex-end;
-          margin-top: 15px;
-        `;
-        
-        // 确认按钮
-        const confirmButton = document.createElement('button');
-        confirmButton.textContent = '覆盖';
-        confirmButton.style.cssText = `
-          padding: 8px 16px;
-          background-color: #007bff;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-        `;
-        confirmButton.onclick = () => {
-          console.log('User chose to overwrite:', fileName);
-          this.hideProgressAlert();
-          resolve(true);
-        };
-        
-        // 取消按钮
-        const cancelButton = document.createElement('button');
-        cancelButton.textContent = '跳过';
-        cancelButton.style.cssText = `
-          padding: 8px 16px;
-          background-color: #6c757d;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-        `;
-        cancelButton.onclick = () => {
-          console.log('User chose to skip:', fileName);
-          this.hideProgressAlert();
-          resolve(false);
-        };
-        
-        buttonContainer.appendChild(cancelButton);
-        buttonContainer.appendChild(confirmButton);
-        this.progressAlert.appendChild(buttonContainer);
-      } else {
-        console.log('Progress alert not found, resolving with false');
-        resolve(false); // 如果没有进度提示框，直接返回false
-      }
+      ]);
     });
   }
   
@@ -328,8 +369,8 @@ export class ImportManager {
         directoryHandles = Array.isArray(dirHandle) ? dirHandle : [dirHandle];
       } catch (error) {
         console.warn('用户取消了文件夹选择或浏览器不支持showDirectoryPicker');
-        this.showProgressAlert('导入失败', '请选择包含Markdown文件的文件夹。注意：此功能需要现代浏览器支持（如Chrome 86+）。', 'error');
-        setTimeout(() => this.hideProgressAlert(), 3000);
+        this.progressAlert.show('导入失败', '请选择包含Markdown文件的文件夹。注意：此功能需要现代浏览器支持（如Chrome 86+）。', 'error');
+        setTimeout(() => this.progressAlert.hide(), 3000);
         return null;
       }
 
@@ -399,13 +440,13 @@ export class ImportManager {
       
       // 如果没有找到任何Markdown文件和文件夹，则报错
       if (markdownFiles.length === 0 && allFolderPaths.length === 0) {
-        this.showProgressAlert('导入失败', '未找到任何Markdown文件或文件夹。请选择包含.md或.txt文件的文件夹。', 'error');
-        setTimeout(() => this.hideProgressAlert(), 3000);
+        this.progressAlert.show('导入失败', '未找到任何Markdown文件或文件夹。请选择包含.md或.txt文件的文件夹。', 'error');
+        setTimeout(() => this.progressAlert.hide(), 3000);
         return null;
       }
       
       // 显示导入进度提示
-      this.showProgressAlert('正在导入', `正在导入 ${markdownFiles.length} 个笔记, ${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹...`, 'info');
+      this.progressAlert.show('正在导入', `正在导入 ${markdownFiles.length} 个笔记, ${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹...`, 'info');
       
       // 按深度排序文件夹路径，确保父级文件夹先创建
       const sortedFolderPaths = [...allFolderPaths].sort((a, b) => {
@@ -453,7 +494,7 @@ export class ImportManager {
         console.log(`Uploading image ${i + 1}/${imageFiles.length}:`, path, `文件大小: ${file.size} bytes`);
         
         // 更新进度提示
-        this.updateProgressAlert(`正在导入图片 (${i + 1}/${imageFiles.length})`, `正在上传: ${path}`, 'info');
+        this.progressAlert.update(`正在导入图片 (${i + 1}/${imageFiles.length})`, `正在上传: ${path}`, 'info');
         
         try {
           // 上传图片到服务器
@@ -462,55 +503,73 @@ export class ImportManager {
           console.log(`图片上传成功: ${path} -> ${imageUrl}`);
         } catch (error) {
           console.error(`图片上传失败 ${path}:`, error);
-          this.updateProgressAlert('图片上传出错', `图片上传失败 ${path}: ${(error as Error).message}`, 'error');
+          this.progressAlert.update('图片上传出错', `图片上传失败 ${path}: ${(error as Error).message}`, 'error');
         }
       }
       
       console.log('Uploaded images mapping:', uploadedImages);
       
-      // 处理每个Markdown文件，逐个导入并实时更新目录树
+      // 处理所有Markdown文件
+      let processedCount = 0;
+      let skippedCount = 0;
+      let totalMarkdownFiles = markdownFiles.length;
+
       for (let i = 0; i < markdownFiles.length; i++) {
         const {handle: fileHandle, path} = markdownFiles[i];
         const file = await fileHandle.getFile();
-        // 使用路径作为文件名，支持文件夹结构
-        // 将路径分隔符统一为正斜杠，并移除扩展名
         const fileName = path.replace(/\\/g, '/').replace(/\.[^/.]+$/, "");
-        
-        console.log(`Processing file ${i + 1}/${markdownFiles.length}:`, fileName);
-        
-        // 更新进度提示
-        this.updateProgressAlert(`正在导入笔记 (${i + 1}/${markdownFiles.length})`, `正在处理: ${fileName}`, 'info');
-        
-        console.log('Checking for duplicates:', { fileName, existingNotesCount: existingNotes.length });
-        
+
+        console.log(`Processing file ${i + 1}/${totalMarkdownFiles}:`, fileName);
+
+        // 重新获取当前笔记列表，确保包含最新的状态
+        // 这里需要从API获取最新的笔记列表，因为我们可能已经删除或添加了笔记
+        let currentNotes = [];
+        try {
+          const response = await fetch('http://localhost:3001/api/notes');
+          if (response.ok) {
+            currentNotes = await response.json();
+          }
+        } catch (error) {
+          console.error('Failed to fetch current notes:', error);
+          // 如果获取失败，使用原有的existingNotes
+          currentNotes = existingNotes;
+        }
+
         // 检查是否已存在同名笔记
-        const existingNoteInfo = this.checkExistingNote(fileName, existingNotes);
+        const existingNoteInfo = this.checkExistingNote(fileName, currentNotes);
         if (existingNoteInfo) {
-          console.log('Duplicate found, showing overwrite confirmation for:', fileName);
-          // 显示覆盖确认提示，传入完整路径
-          const shouldOverwrite = await this.showOverwriteConfirmation(
+          console.log('Duplicate found:', fileName);
+
+          // 定位到目录树并显示确认弹窗
+          const shouldOverwrite = await this.confirmOverwriteDuplicate(
             fileName.split('/').pop() || fileName,
-            existingNoteInfo.fullPath
+            existingNoteInfo.fullPath,
+            dispatch
           );
-          console.log('Overwrite confirmation result:', shouldOverwrite);
+
           if (!shouldOverwrite) {
             console.log('User chose to skip duplicate:', fileName);
+            skippedCount++;
             continue; // 跳过此文件
-          } else {
-            console.log('User chose to overwrite duplicate:', fileName);
-            // 如果选择覆盖，先删除现有笔记
-            console.log('Deleting existing note with ID:', existingNoteInfo.note.id);
-            dispatch({
-              type: 'DELETE_NOTE',
-              payload: existingNoteInfo.note.id
-            });
-            
-            // 等待删除完成
-            await new Promise(resolve => setTimeout(resolve, 100));
           }
-        } else {
-          console.log('No duplicate found for:', fileName);
+
+          // 如果选择覆盖，先删除现有笔记
+          console.log('Deleting existing note with ID:', existingNoteInfo.note.id);
+          dispatch({
+            type: 'DELETE_NOTE',
+            payload: existingNoteInfo.note.id
+          });
+
+          // 等待删除完成
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          // 重新显示进度提示（因为刚才隐藏了弹窗）
+          this.progressAlert.show('正在导入', `正在处理: ${fileName}`, 'info');
         }
+
+        // 更新进度提示
+        processedCount++;
+        this.progressAlert.update(`正在导入笔记 (${processedCount}/${totalMarkdownFiles})`, `正在处理: ${fileName}`, 'info');
         
         try {
           // 读取文件内容
@@ -628,13 +687,14 @@ export class ImportManager {
           console.log(`成功导入笔记: ${fileName}`);
         } catch (error) {
           console.error(`导入笔记 ${fileName} 失败:`, error);
-          this.updateProgressAlert('导入出错', `导入笔记 ${fileName} 失败: ${(error as Error).message}`, 'error');
+          this.progressAlert.update('导入出错', `导入笔记 ${fileName} 失败: ${(error as Error).message}`, 'error');
           // 继续处理其他文件
         }
       }
       
       // 显示完成提示
-      this.updateProgressAlert('导入完成', `成功导入 ${markdownFiles.length} 个笔记, ${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹！`, 'success');
+      const successCount = processedCount - skippedCount;
+      this.progressAlert.update('导入完成', `成功导入 ${successCount} 个笔记，跳过 ${skippedCount} 个重复文件\n${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹！`, 'success');
       
       // 强制刷新目录树
       // 等待一段时间确保所有操作完成，然后触发状态更新
@@ -648,26 +708,19 @@ export class ImportManager {
         dispatch({ type: 'FORCE_UPDATE' });
       }, 500);
       
-      // 清除可能存在的按钮
-      if (this.progressAlert) {
-        // 清除除了标题和消息之外的所有元素
-        while (this.progressAlert.children.length > 2) {
-          this.progressAlert.removeChild(this.progressAlert.lastChild!);
-        }
-      }
-      
+            
       // 3秒后自动关闭提示
       setTimeout(() => {
-        this.hideProgressAlert();
+        this.progressAlert.hide();
       }, 3000);
       
       // 返回最后一个导入的笔记路径（如果是覆盖操作）
       return lastImportedNotePath;
     } catch (error) {
       console.error('导入笔记失败:', error);
-      this.updateProgressAlert('导入失败', '导入笔记失败: ' + (error as Error).message, 'error');
+      this.progressAlert.update('导入失败', '导入笔记失败: ' + (error as Error).message, 'error');
       setTimeout(() => {
-        this.hideProgressAlert();
+        this.progressAlert.hide();
       }, 3000);
       throw error;
     }
@@ -802,159 +855,6 @@ export class ImportManager {
       }
     } catch (error) {
       console.error('处理笔记图片时出错:', error);
-    }
-  }
-  
-  /**
-   * 显示进度提示框
-   * @param title 标题
-   * @param message 消息内容
-   * @param type 提示类型 (success, error, info, warning)
-   */
-  private static showProgressAlert(title: string, message: string, type: string): void {
-    // 创建或更新提示框元素
-    let alertContainer = document.getElementById('export-alert-container');
-    if (!alertContainer) {
-      alertContainer = document.createElement('div');
-      alertContainer.id = 'export-alert-container';
-      alertContainer.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 10000;
-        min-width: 300px;
-        max-width: 500px;
-      `;
-      document.body.appendChild(alertContainer);
-    }
-    
-    // 创建提示框内容
-    const alertElement = document.createElement('div');
-    alertElement.style.cssText = `
-      background: ${type === 'success' ? '#d4edda' : type === 'error' ? '#f8d7da' : type === 'warning' ? '#fff3cd' : '#d1ecf1'};
-      border: 1px solid ${type === 'success' ? '#c3e6cb' : type === 'error' ? '#f5c6cb' : type === 'warning' ? '#ffeaa7' : '#bee5eb'};
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 12px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-      transform: translateX(0);
-      transition: transform 0.3s ease, opacity 0.3s ease;
-      opacity: 1;
-    `;
-    
-    // 添加标题
-    const titleElement = document.createElement('div');
-    titleElement.style.cssText = `
-      font-weight: bold;
-      margin-bottom: 8px;
-      color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : type === 'warning' ? '#856404' : '#0c5460'};
-    `;
-    titleElement.textContent = title;
-    alertElement.appendChild(titleElement);
-    
-    // 添加消息内容
-    const messageElement = document.createElement('div');
-    messageElement.style.cssText = `
-      color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : type === 'warning' ? '#856404' : '#0c5460'};
-      white-space: pre-wrap;
-      line-height: 1.5;
-    `;
-    messageElement.textContent = message;
-    alertElement.appendChild(messageElement);
-    
-    // 添加关闭按钮
-    const closeButton = document.createElement('button');
-    closeButton.style.cssText = `
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      background: none;
-      border: none;
-      font-size: 18px;
-      cursor: pointer;
-      color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : type === 'warning' ? '#856404' : '#0c5460'};
-    `;
-    closeButton.innerHTML = '&times;';
-    closeButton.onclick = () => {
-      alertElement.style.transform = 'translateX(100%)';
-      alertElement.style.opacity = '0';
-      setTimeout(() => {
-        if (alertElement.parentNode) {
-          alertElement.parentNode.removeChild(alertElement);
-        }
-      }, 300);
-    };
-    alertElement.appendChild(closeButton);
-    
-    // 保存引用以便更新
-    this.progressAlert = alertElement;
-    
-    // 添加到容器
-    alertContainer.appendChild(alertElement);
-  }
-  
-  /**
-   * 更新进度提示框内容
-   * @param title 标题
-   * @param message 消息内容
-   * @param type 提示类型
-   */
-  private static updateProgressAlert(title: string, message: string, type: string): void {
-    if (this.progressAlert) {
-      // 更新样式
-      this.progressAlert.style.cssText = `
-        background: ${type === 'success' ? '#d4edda' : type === 'error' ? '#f8d7da' : type === 'warning' ? '#fff3cd' : '#d1ecf1'};
-        border: 1px solid ${type === 'success' ? '#c3e6cb' : type === 'error' ? '#f5c6cb' : type === 'warning' ? '#ffeaa7' : '#bee5eb'};
-        border-radius: 8px;
-        padding: 16px;
-        margin-bottom: 12px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        transform: translateX(0);
-        transition: transform 0.3s ease, opacity 0.3s ease;
-        opacity: 1;
-      `;
-      
-      // 更新标题和消息
-      const titleElement = this.progressAlert.querySelector('div:first-child');
-      const messageElement = this.progressAlert.querySelector('div:nth-child(2)');
-      
-      if (titleElement) {
-        titleElement.textContent = title;
-        (titleElement as HTMLElement).style.cssText = `
-          font-weight: bold;
-          margin-bottom: 8px;
-          color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : type === 'warning' ? '#856404' : '#0c5460'};
-        `;
-      }
-      
-      if (messageElement) {
-        messageElement.textContent = message;
-        (messageElement as HTMLElement).style.cssText = `
-          color: ${type === 'success' ? '#155724' : type === 'error' ? '#721c24' : type === 'warning' ? '#856404' : '#0c5460'};
-          white-space: pre-wrap;
-          line-height: 1.5;
-        `;
-      }
-    } else {
-      // 如果还没有创建提示框，则创建一个
-      this.showProgressAlert(title, message, type);
-    }
-  }
-  
-  /**
-   * 隐藏进度提示框
-   */
-  private static hideProgressAlert(): void {
-    if (this.progressAlert) {
-      // 淡出效果
-      this.progressAlert.style.transform = 'translateX(100%)';
-      this.progressAlert.style.opacity = '0';
-      setTimeout(() => {
-        if (this.progressAlert && this.progressAlert.parentNode) {
-          this.progressAlert.parentNode.removeChild(this.progressAlert);
-          this.progressAlert = null;
-        }
-      }, 300);
     }
   }
 }
