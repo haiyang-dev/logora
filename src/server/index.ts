@@ -6,19 +6,28 @@ import searchEngine from './search.js';
 import multer from 'multer';
 import type { Request, Response } from 'express';
 import { createHash } from 'crypto';
+import {
+  SERVER_CONFIG,
+  CORS_CONFIG,
+  FILESYSTEM_CONFIG,
+  UPLOAD_CONFIG,
+  CACHE_CONFIG,
+  MIME_CONFIG,
+  SECURITY_CONFIG
+} from '../config/server.js';
 
 // 获取当前文件的目录路径
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // 配置 workspace 目录路径（独立的workspace文件夹）
-const WORKSPACE_DIR = path.join(__dirname, '../../workspace');
+const WORKSPACE_DIR = path.join(__dirname, '../../', FILESYSTEM_CONFIG.WORKSPACE_DIR);
 
 // 配置资源目录路径
-const RESOURCES_DIR = path.join(WORKSPACE_DIR, '.resources');
+const RESOURCES_DIR = path.join(WORKSPACE_DIR, FILESYSTEM_CONFIG.RESOURCES_DIR);
 
 // 配置图片目录路径
-const IMAGES_DIR = path.join(RESOURCES_DIR, 'images');
+const IMAGES_DIR = path.join(RESOURCES_DIR, FILESYSTEM_CONFIG.IMAGES_DIR);
 
 // 确保必要的目录存在
 if (!fs.existsSync(WORKSPACE_DIR)) {
@@ -37,33 +46,33 @@ if (!fs.existsSync(IMAGES_DIR)) {
 const storage = multer.memoryStorage();
 
 // 配置 multer，设置正确的文件名编码处理
-const upload = multer({ 
+const upload = multer({
   storage: storage,
-  preservePath: true
+  preservePath: true,
+  limits: {
+    fileSize: UPLOAD_CONFIG.MAX_FILE_SIZE
+  },
+  fileFilter: (req, file, cb) => {
+    if (UPLOAD_CONFIG.ALLOWED_IMAGE_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type'));
+    }
+  }
 });
 
 const app = express();
-const PORT = process.env.PORT || 3001;
-
-// CORS 配置 - 支持多个开发端口
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5174',
-  'http://127.0.0.1:5175'
-];
+const PORT = SERVER_CONFIG.PORT;
 
 app.use((req: Request, res: Response, next: any) => {
   const origin = req.headers.origin;
-  if (origin && allowedOrigins.includes(origin)) {
+  if (origin && CORS_CONFIG.ALLOWED_ORIGINS.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
   }
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  
+  res.header('Access-Control-Allow-Methods', CORS_CONFIG.ALLOWED_METHODS.join(', '));
+  res.header('Access-Control-Allow-Headers', CORS_CONFIG.ALLOWED_HEADERS.join(', '));
+  res.header('Access-Control-Allow-Credentials', CORS_CONFIG.CREDENTIALS.toString());
+
   // 处理预检请求
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
@@ -73,47 +82,29 @@ app.use((req: Request, res: Response, next: any) => {
 });
 
 // 中间件
-app.use(express.json({ limit: '10mb' })); // 增加请求体大小限制
+app.use(express.json({ limit: UPLOAD_CONFIG.MAX_FILE_SIZE }));
 app.use(express.urlencoded({ extended: true }));
+
+// 设置MIME类型的辅助函数
+const setMimeHeaders = (res: Response, filePath: string) => {
+  const ext = path.extname(filePath).toLowerCase();
+  const contentType = MIME_CONFIG.TYPES[ext as keyof typeof MIME_CONFIG.TYPES] || MIME_CONFIG.DEFAULT_TYPE;
+  res.setHeader('Content-Type', contentType);
+};
 
 // 静态资源服务 - 为图片等资源提供服务
 app.use('/assets', express.static(path.join(__dirname, '../../public'), {
   setHeaders: (res, filePath) => {
-    // 设置适当的MIME类型
-    if (filePath.endsWith('.svg')) {
-      res.setHeader('Content-Type', 'image/svg+xml');
-    } else if (filePath.endsWith('.png')) {
-      res.setHeader('Content-Type', 'image/png');
-    } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
-      res.setHeader('Content-Type', 'image/jpeg');
-    } else if (filePath.endsWith('.gif')) {
-      res.setHeader('Content-Type', 'image/gif');
-    } else if (filePath.endsWith('.webp')) {
-      res.setHeader('Content-Type', 'image/webp');
-    }
-    // 设置缓存头
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    setMimeHeaders(res, filePath);
+    res.setHeader('Cache-Control', CACHE_CONFIG.STATIC_CACHE_MAX_AGE);
   }
 }));
 
 // 为.resources目录提供静态资源服务
 app.use('/resources', express.static(RESOURCES_DIR, {
   setHeaders: (res, filePath) => {
-    // 设置适当的MIME类型
-    if (filePath.endsWith('.svg')) {
-      res.setHeader('Content-Type', 'image/svg+xml');
-    } else if (filePath.endsWith('.png')) {
-      res.setHeader('Content-Type', 'image/png');
-    } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
-      res.setHeader('Content-Type', 'image/jpeg');
-    } else if (filePath.endsWith('.gif')) {
-      res.setHeader('Content-Type', 'image/gif');
-    } else if (filePath.endsWith('.webp')) {
-      res.setHeader('Content-Type', 'image/webp');
-    }
-    // 设置缓存头
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    // 添加CORS头以确保图片可以被前端访问
+    setMimeHeaders(res, filePath);
+    res.setHeader('Cache-Control', CACHE_CONFIG.RESOURCE_CACHE_MAX_AGE);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
@@ -440,22 +431,28 @@ app.post('/api/upload-image', upload.single('image'), async (req: Request, res: 
       // 如果解码失败，保持原始文件名
       console.warn('文件名解码失败:', decodeError);
     }
-    
+
     const fileExtension = path.extname(originalName);
+
+    // 验证文件扩展名
+    if (!UPLOAD_CONFIG.ALLOWED_EXTENSIONS.includes(fileExtension)) {
+      return res.status(400).json({ error: 'Invalid file extension' });
+    }
+
     const fileName = `${hash}${fileExtension}`;
     const filePath = path.join(IMAGES_DIR, fileName);
-    
+
     // 检查文件是否已存在，如果不存在则保存
     if (!fs.existsSync(filePath)) {
       // 保存文件到磁盘
       fs.writeFileSync(filePath, fileBuffer);
     }
-    
+
     // 构建相对路径的图片URL
     const relativeImageUrl = `/resources/images/${fileName}`;
-    
+
     // 构建绝对URL，确保在BlockNote编辑器中能正确显示
-    const absoluteImageUrl = `http://localhost:3001${relativeImageUrl}`;
+    const absoluteImageUrl = `http://${SERVER_CONFIG.HOST}:${SERVER_CONFIG.PORT}${relativeImageUrl}`;
     
     // 返回BlockNote期望的格式
     res.json({ 
@@ -615,12 +612,17 @@ function getAllNotes(dir: string, basePath: string = ''): any[] {
   const notes = [];
   const items = fs.readdirSync(dir);
   
-  // 过滤掉以点(.)开头的隐藏文件夹和其他不需要的目录
-  const filteredItems = items.filter(item => 
+  // 过滤掉不需要的目录
+  const filteredItems = items.filter(item =>
     !item.startsWith('.') &&  // 过滤掉所有以点(.)开头的隐藏文件夹
-    item !== 'node_modules' && 
-    item !== 'public' &&
-    item !== 'src'
+    !FILESYSTEM_CONFIG.IGNORED_DIRECTORIES.includes(item) &&
+    !FILESYSTEM_CONFIG.IGNORED_FILES.some(pattern => {
+      if (pattern.includes('*')) {
+        const regex = new RegExp(pattern.replace(/\*/g, '.*'));
+        return regex.test(item);
+      }
+      return item === pattern;
+    })
   );
   
   // 分离文件夹和文件
