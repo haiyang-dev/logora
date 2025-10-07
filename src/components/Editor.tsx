@@ -61,6 +61,13 @@ function sanitizeBlocks(blocks: Block[]): Block[] {
       block.props = {};
     }
 
+    // 确保所有块都有必要的默认props
+    if (block.type !== 'image' && block.type !== 'horizontalRule' && block.type !== 'codeBlock') {
+      if (!block.props.backgroundColor) block.props.backgroundColor = 'default';
+      if (!block.props.textColor) block.props.textColor = 'default';
+      if (!block.props.textAlignment) block.props.textAlignment = 'left';
+    }
+
     return true;
   });
 }
@@ -191,25 +198,45 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
       ? sanitizeBlocks(initialContent) // 清理和验证块
       : [];
 
+    // 调试日志
+    console.log('尝试加载的内容:', validInitialContent);
+    console.log('编辑器当前文档:', editor.document);
+
     // 只有当编辑器内容为空时才替换内容，避免在已有内容时覆盖
     if (validInitialContent.length > 0) {
       // 设置加载标志，防止触发保存
       isLoadingContentRef.current = true;
       try {
-        editor.replaceBlocks(editor.document, validInitialContent);
-      } catch (error) {
-        console.error('替换块时发生错误:', error);
-        // 如果替换失败，尝试添加单个块
-        try {
+        // 检查编辑器是否已经有内容
+        const hasExistingContent = editor.document && editor.document.length > 0;
+
+        if (hasExistingContent) {
+          console.log('编辑器已有内容，使用insertBlocks添加新内容');
+          // 获取最后一个块作为参考点
+          const lastBlock = editor.document[editor.document.length - 1];
+
+          // 逐个插入块
           for (const block of validInitialContent) {
             try {
-              editor.insertBlocks([block], editor.document.atEnd());
+              editor.insertBlocks([block], lastBlock.id, "after");
             } catch (blockError) {
-              console.error('插入单个块时发生错误:', blockError, block);
+              console.error('插入块时发生错误:', blockError, block);
             }
           }
-        } catch (fallbackError) {
-          console.error('备用插入方法也失败:', fallbackError);
+        } else {
+          console.log('编辑器为空，使用replaceBlocks设置内容');
+          editor.replaceBlocks(editor.document, validInitialContent);
+        }
+      } catch (error) {
+        console.error('设置内容时发生错误:', error);
+        // 备用方案：尝试使用transact
+        try {
+          editor.transact((tr) => {
+            console.log('尝试使用transaction设置内容');
+            // 这里可以添加更底层的操作
+          });
+        } catch (transactError) {
+          console.error('transaction也失败:', transactError);
         }
       }
       // 在下一个事件循环中清除标志，确保replaceBlocks完成后再允许处理变化事件
