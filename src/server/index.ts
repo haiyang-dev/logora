@@ -7,6 +7,17 @@ import multer from 'multer';
 import type { Request, Response, NextFunction } from 'express';
 import { createHash } from 'crypto';
 
+// 全局错误处理 - 防止未捕获的异常导致服务器崩溃
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // 不要退出进程，避免服务中断
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // 不要退出进程，避免服务中断
+});
+
 // 类型定义
 interface NoteItem {
   id: string;

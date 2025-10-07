@@ -573,13 +573,41 @@ export class ImportManager {
           const noteDirPath = path.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
           content = this.replaceImagePathsV2(content, updatedUploadedImages, noteDirPath);
 
-          // 解析Markdown内容为BlockNote格式
-          let blocks: Block[] = [];
+          // 解析Markdown内容为BlockNote格式 - 完全隔离版本
+          console.log(`[DEBUG] 开始解析 ${fileName}, 原始内容长度: ${content.length}`);
+          console.log(`[DEBUG] 前50字符: ${content.substring(0, 50)}`);
+
+          let parsedBlocks: Block[] = [];
           try {
-            blocks = parseMarkdownToBlocks(content) as Block[];
+            const rawBlocks = parseMarkdownToBlocks(content) as Block[];
+            console.log(`[DEBUG] parseMarkdownToBlocks 返回了 ${rawBlocks.length} 个块`);
+
+            // 创建完全新的对象，深拷贝所有内容，强制生成新ID
+            parsedBlocks = rawBlocks.map((block, blockIndex) => {
+              const newBlock: any = {
+                id: uuidv4(), // 强制生成新的ID
+                type: block.type,
+                props: JSON.parse(JSON.stringify(block.props || {})),
+                content: JSON.parse(JSON.stringify(block.content || [])),
+                children: JSON.parse(JSON.stringify(block.children || []))
+              };
+
+              console.log(`[DEBUG] 块 ${blockIndex}: type=${newBlock.type}, id=${newBlock.id}`);
+              if (newBlock.content && newBlock.content.length > 0) {
+                console.log(`[DEBUG]   第一个内容: ${JSON.stringify(newBlock.content[0]).substring(0, 100)}`);
+              }
+
+              return newBlock;
+            });
+
+            console.log(`[DEBUG] 创建了 ${parsedBlocks.length} 个隔离的块`);
+
           } catch (parseError) {
             console.warn(`解析Markdown内容失败:`, parseError);
-            blocks = [{
+            console.log(`[DEBUG] 解析失败，使用原始内容作为段落块: ${content.substring(0, 100)}`);
+
+            // 如果解析失败，创建一个包含原始Markdown内容的段落块
+            parsedBlocks = [{
               id: uuidv4(),
               type: "paragraph",
               props: {
@@ -589,22 +617,29 @@ export class ImportManager {
               },
               content: [{
                 type: "text",
-                text: content,
+                text: content.substring(0, 1000), // 限制长度避免过大
                 styles: {}
               }],
               children: []
             }] as Block[];
           }
 
-          console.log(`[DEBUG] 解析完成 ${fileName}, 块数量: ${blocks.length}`);
+          console.log(`[DEBUG] 解析完成 ${fileName}, 最终块数量: ${parsedBlocks.length}`);
 
-          // 准备笔记数据
+          // 准备笔记数据 - 再次深拷贝确保完全隔离
           const noteTitle = fileName.split('/').pop() || fileName;
           const noteFilePath = fileName.endsWith('.json') ? fileName : `${fileName}.json`;
 
+          const finalContent = JSON.parse(JSON.stringify(parsedBlocks));
+
+          console.log(`[DEBUG] 准备添加到 notesToCreate: ${noteTitle}, 内容块数: ${finalContent.length}`);
+          if (finalContent.length > 0) {
+            console.log(`[DEBUG] 最终内容第一个块: ${JSON.stringify(finalContent[0]).substring(0, 200)}`);
+          }
+
           notesToCreate.push({
             title: noteTitle,
-            content: JSON.parse(JSON.stringify(blocks)), // 深拷贝
+            content: finalContent, // 已经深拷贝
             filePath: noteFilePath,
             isOverwrite: shouldOverwrite
           });
