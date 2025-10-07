@@ -17,7 +17,8 @@
       "Bash(git reflog:*)",
       "Bash(npx eslint:*)",
       "Bash(timeout:*)",
-      "Bash(npx vite build:*)"
+      "Bash(npx vite build:*)",
+      "WebSearch"
     ],
     "deny": [],
     "ask": []

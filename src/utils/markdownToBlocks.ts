@@ -396,7 +396,7 @@ function isTableSeparator(line: string): boolean {
  */
 function createTableElement(lines: string[]): MarkdownElement {
   const rows: string[][] = [];
-  
+
   for (const line of lines) {
     if (isTableRow(line) && !isTableSeparator(line)) {
       // 解析表格行，移除首尾的|并按|分割
@@ -404,13 +404,23 @@ function createTableElement(lines: string[]): MarkdownElement {
       rows.push(cells);
     }
   }
-  
+
   // 如果只有一行，可能是标题行，添加空的数据行
   if (rows.length === 1) {
     const emptyRow = rows[0].map(() => '');
     rows.push(emptyRow);
   }
-  
+
+  // 确保所有行都有相同数量的列
+  if (rows.length > 0) {
+    const maxCols = Math.max(...rows.map(row => row.length));
+    for (let i = 0; i < rows.length; i++) {
+      while (rows[i].length < maxCols) {
+        rows[i].push('');
+      }
+    }
+  }
+
   return {
     type: 'table',
     rows: rows
@@ -699,34 +709,53 @@ export function convertJSONToBlocks(elements: MarkdownElement[]): BlockNoteBlock
         });
         break;
         
-      case 'table':
+      case 'table': {
         // 将表格转换为BlockNote表格块
+        const tableRows = element.rows as string[][];
+
+        // 确保表格至少有一行，如果为空则跳过
+        if (tableRows.length === 0) {
+          break;
+        }
+
+        // 创建表格内容
+        const tableContent = {
+          type: 'tableContent' as const,
+          columnWidths: tableRows[0] ? tableRows[0].map(() => null) : [],
+          rows: tableRows.map((row: string[]) => ({
+            cells: row.map((cell: string) => {
+              // 解析单元格内容，如果内容为空则提供默认内容
+              const cellContent = parseLinks(cell);
+              const cleanedContent = Array.isArray(cellContent) && cellContent.length > 0
+                ? cellContent
+                : [{ type: 'text', text: '', styles: {} }];
+
+              return {
+                type: 'tableCell' as const,
+                content: cleanedContent,
+                props: {
+                  colspan: 1,
+                  rowspan: 1,
+                  backgroundColor: 'default' as const,
+                  textColor: 'default' as const,
+                  textAlignment: 'left' as const
+                }
+              };
+            })
+          }))
+        };
+
         blocks.push({
           id: uuidv4(),
           type: 'table',
           props: {
             textColor: 'default'
           },
-          content: {
-            type: 'tableContent',
-            columnWidths: (element.rows as string[][])[0] ? (element.rows as string[][])[0].map(() => null) : [],
-            rows: (element.rows as string[][]).map((row: string[]) => ({
-              cells: row.map((cell: string) => ({
-                type: 'tableCell',
-                content: parseLinks(cell),
-                props: {
-                  colspan: 1,
-                  rowspan: 1,
-                  backgroundColor: 'default',
-                  textColor: 'default',
-                  textAlignment: 'left'
-                }
-              }))
-            }))
-          } as any,
+          content: tableContent,
           children: []
         });
         break;
+      }
     }
   }
   
@@ -739,11 +768,31 @@ export function convertJSONToBlocks(elements: MarkdownElement[]): BlockNoteBlock
  * @returns BlockNote块数组
  */
 export function parseMarkdownToBlocks(markdown: string): BlockNoteBlock[] {
-  // 第一步：将Markdown转换为JSON格式
-  const jsonElements = parseMarkdownToJSON(markdown);
-  
-  // 第二步：将JSON格式转换为BlockNote块
-  const blocks = convertJSONToBlocks(jsonElements);
-  
-  return blocks;
+  try {
+    // 第一步：将Markdown转换为JSON格式
+    const jsonElements = parseMarkdownToJSON(markdown);
+
+    // 第二步：将JSON格式转换为BlockNote块
+    const blocks = convertJSONToBlocks(jsonElements);
+
+    return blocks;
+  } catch (error) {
+    console.error('Markdown转换为BlockNote块时发生错误:', error);
+    // 返回一个包含原始文本的简单段落块
+    return [{
+      id: uuidv4(),
+      type: "paragraph",
+      props: {
+        backgroundColor: "default",
+        textColor: "default",
+        textAlignment: "left"
+      },
+      content: [{
+        type: "text",
+        text: markdown,
+        styles: {}
+      }],
+      children: []
+    }];
+  }
 }
