@@ -545,13 +545,26 @@ export class ImportManager {
           let content = await file.text();
 
           console.log(`[DEBUG] 解析文件 ${fileName}, 原始内容长度: ${content.length}`);
+          console.log(`[DEBUG] 文件路径: ${path}`);
+          console.log(`[DEBUG] 文件内容预览: ${content.substring(0, 200)}...`);
 
-          // 查找Markdown中引用的.resources/images路径的图片并添加到上传映射
-          const updatedUploadedImages = { ...uploadedImages };
+          // 创建完全隔离的图片映射，确保不会混入其他文件的内容
+          const isolatedUploadedImages: Record<string, string> = {};
+
+          // 添加全局上传的图片映射（只读取，不修改全局状态）
+          Object.assign(isolatedUploadedImages, uploadedImages);
+
+          // 查找当前Markdown文件中引用的.resources/images路径的图片
+          const localImageMatches: string[] = [];
           const imageRegex = /!\[([^\]]*)\]\((\.[^)]*\.resources\/images\/[^)]+)\)/g;
           let match;
           while ((match = imageRegex.exec(content)) !== null) {
             const imagePath = match[2];
+            localImageMatches.push(imagePath);
+          }
+
+          // 为当前文件特有的图片上传并添加到隔离的映射中
+          for (const imagePath of localImageMatches) {
             const imageFileName = imagePath.split('/').pop();
             if (imageFileName) {
               const imageFile = allFileHandles.find(f => f.path.endsWith(imageFileName) &&
@@ -561,7 +574,7 @@ export class ImportManager {
                 try {
                   const imageFileContent = await imageFile.handle.getFile();
                   const imageUrl = await this.uploadImageToServer(imageFileContent);
-                  updatedUploadedImages[imagePath] = imageUrl;
+                  isolatedUploadedImages[imagePath] = imageUrl;
                 } catch (uploadError) {
                   console.error(`Failed to upload .resources image ${imagePath}:`, uploadError);
                 }
@@ -570,8 +583,8 @@ export class ImportManager {
           }
 
           // 替换Markdown中的图片路径为上传后的URL
-          const noteDirPath = path.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
-          content = this.replaceImagePathsV2(content, updatedUploadedImages, noteDirPath);
+          const currentNoteDirPath = path.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+          content = this.replaceImagePathsV2(content, isolatedUploadedImages, currentNoteDirPath);
 
           // 解析Markdown内容为BlockNote格式 - 完全隔离版本
           console.log(`[DEBUG] 开始解析 ${fileName}, 原始内容长度: ${content.length}`);
@@ -625,6 +638,12 @@ export class ImportManager {
           }
 
           console.log(`[DEBUG] 解析完成 ${fileName}, 最终块数量: ${parsedBlocks.length}`);
+          if (parsedBlocks.length > 0) {
+            console.log(`[DEBUG] ${fileName} 第一个块类型: ${parsedBlocks[0].type}`);
+            if (parsedBlocks[0].content && parsedBlocks[0].content.length > 0) {
+              console.log(`[DEBUG] ${fileName} 第一个块内容预览: ${JSON.stringify(parsedBlocks[0].content[0]).substring(0, 150)}...`);
+            }
+          }
 
           // 准备笔记数据 - 再次深拷贝确保完全隔离
           const noteTitle = fileName.split('/').pop() || fileName;
@@ -660,7 +679,8 @@ export class ImportManager {
 
         console.log(`[DEBUG] 创建笔记: ${note.title}, 路径: ${note.filePath}`);
         if (note.content.length > 0) {
-          console.log(`[DEBUG] 第一个块内容:`, JSON.stringify(note.content[0].content, null, 2));
+          console.log(`[DEBUG] ${note.title} 第一个块类型: ${note.content[0].type}`);
+          console.log(`[DEBUG] ${note.title} 第一个块内容:`, JSON.stringify(note.content[0].content, null, 2));
         }
 
         dispatch({
