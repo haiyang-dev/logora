@@ -1,4 +1,4 @@
-# OneNote BlackNote
+# Logora
 
 一个基于 React + TypeScript 的本地 Markdown 笔记管理应用，类似于 Obsidian，使用 BlockNote 编辑器提供富文本编辑功能。
 
@@ -51,8 +51,8 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/one-note-blacknote.git
-cd one-note-blacknote
+git clone https://github.com/haiyang-dev/logora.git
+cd logora
 
 # 安装依赖
 npm install
@@ -117,7 +117,7 @@ npm run server:prod
 ### 项目结构
 
 ```
-one-note-blacknote/
+logora/
 ├── src/
 │   ├── components/          # React 组件
 │   │   ├── Editor.tsx      # 编辑器组件
