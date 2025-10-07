@@ -433,28 +433,45 @@ export class ImportManager {
       // 等待一段时间确保所有文件夹创建完成
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      // 首先上传所有图片文件
+      // 首先上传所有图片文件 - 使用串行处理避免并发竞态
       const uploadedImages: Record<string, string> = {}; // 存储原图片路径到新URL的映射
-      
-      
-      
+
+      console.log(`[DEBUG] 开始串行上传 ${imageFiles.length} 个图片文件...`);
+
       for (let i = 0; i < imageFiles.length; i++) {
         const {handle: fileHandle, path} = imageFiles[i];
-        const file = await fileHandle.getFile();
 
-        // 更新进度提示
-        this.progressAlert.update(`正在导入图片 (${i + 1}/${imageFiles.length})`, `正在上传: ${path}`, 'info');
-        
         try {
-          // 上传图片到服务器
+          // 先读取文件内容，确保完整性
+          const file = await fileHandle.getFile();
+          console.log(`[DEBUG] 准备上传图片 ${i + 1}/${imageFiles.length}: ${path}, 大小: ${file.size} bytes`);
+
+          // 更新进度提示
+          this.progressAlert.update(`正在导入图片 (${i + 1}/${imageFiles.length})`, `正在上传: ${path}`, 'info');
+
+          // 上传图片到服务器 - 确保每次上传都是独立的
           const imageUrl = await this.uploadImageToServer(file);
-          uploadedImages[path] = imageUrl;
-          
+
+          // 验证上传结果
+          if (imageUrl && typeof imageUrl === 'string') {
+            uploadedImages[path] = imageUrl;
+            console.log(`[DEBUG] 图片上传成功: ${path} -> ${imageUrl}`);
+          } else {
+            console.error(`[ERROR] 图片上传返回无效URL: ${path}`, imageUrl);
+          }
+
         } catch (error) {
-          console.error(`图片上传失败 ${path}:`, error);
+          console.error(`[ERROR] 图片上传失败 ${path}:`, error);
           this.progressAlert.update('图片上传出错', `图片上传失败 ${path}: ${(error as Error).message}`, 'error');
         }
+
+        // 每上传一个图片后稍作停顿，避免服务器压力
+        if (i < imageFiles.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       }
+
+      console.log(`[DEBUG] 图片上传完成，共上传 ${Object.keys(uploadedImages).length} 个图片`);
       
       
       
@@ -518,8 +535,8 @@ export class ImportManager {
 
       console.log(`[DEBUG] 预处理完成，准备导入 ${notesToImport.length} 个笔记`);
 
-    // 批量处理所有要导入的笔记
-      console.log(`[DEBUG] 开始批量处理 ${notesToImport.length} 个笔记...`);
+    // 串行处理所有要导入的笔记，避免异步竞态条件
+      console.log(`[DEBUG] 开始串行处理 ${notesToImport.length} 个笔记...`);
 
       const notesToCreate: Array<{
         title: string;
@@ -531,7 +548,7 @@ export class ImportManager {
       // 重置计数器用于批量处理
       let processedCount = 0;
 
-      // 第一步：解析所有Markdown文件，准备批量创建
+      // 第一步：串行解析所有Markdown文件，避免异步竞态
       for (let i = 0; i < notesToImport.length; i++) {
         const {fileHandle, path, fileName, shouldOverwrite, existingNoteInfo} = notesToImport[i];
         const file = await fileHandle.getFile();
@@ -574,13 +591,18 @@ export class ImportManager {
           // 深拷贝全局上传的图片映射，避免引用污染
           Object.assign(isolatedUploadedImages, JSON.parse(JSON.stringify(uploadedImages)));
 
-          // 查找当前Markdown文件中引用的.resources/images路径的图片 - 使用完全隔离的内容
+          // 查找当前Markdown文件中引用的.resources/images路径的图片 - 避免正则状态污染
           const localImageMatches: string[] = [];
-          const imageRegex = /!\[([^\]]*)\]\((\.[^)]*\.resources\/images\/[^)]+)\)/g;
-          let match;
-          while ((match = imageRegex.exec(rawFileContent)) !== null) {
-            const imagePath = match[2];
-            localImageMatches.push(imagePath);
+
+          // 每次都创建新的正则表达式实例，避免状态污染
+          const imageRegex = new RegExp(/!\[([^\]]*)\]\((\.[^)]*\.resources\/images\/[^)]+)\)/g);
+
+          // 使用 matchAll 而不是 exec，避免状态问题
+          const imageMatches = [...rawFileContent.matchAll(imageRegex)];
+          for (const match of imageMatches) {
+            if (match[2]) {
+              localImageMatches.push(match[2]);
+            }
           }
 
           // 为当前文件特有的图片上传并添加到隔离的映射中
@@ -755,10 +777,30 @@ export class ImportManager {
         }
       }
       
+      // 验证导入结果的完整性
+      console.log(`[DEBUG] 导入完成验证 - 成功导入 ${successCount} 个笔记`);
+      console.log(`[DEBUG] 创建的笔记列表:`, notesToCreate.map(n => ({ title: n.title, path: n.filePath, contentCount: n.content?.length || 0 })));
+
+      // 检查是否有内容重复的情况
+      const contentHashes = new Map<string, string>();
+      let duplicateCount = 0;
+      for (const note of notesToCreate) {
+        const contentHash = JSON.stringify(note.content);
+        if (contentHashes.has(contentHash)) {
+          console.warn(`[WARNING] 发现重复内容: ${note.title} 与 ${contentHashes.get(contentHash)} 内容相同`);
+          duplicateCount++;
+        } else {
+          contentHashes.set(contentHash, note.title);
+        }
+      }
+
+      if (duplicateCount > 0) {
+        console.warn(`[WARNING] 总共发现 ${duplicateCount} 个笔记有重复内容`);
+      }
+
       // 显示完成提示
-      const successCount = processedCount; // 现在processedCount就是实际导入的数量
       const originalSkippedCount = markdownFiles.length - notesToImport.length;
-      this.progressAlert.update('导入完成', `成功导入 ${successCount} 个笔记，跳过 ${originalSkippedCount} 个重复文件\n${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹！`, 'success');
+      this.progressAlert.update('导入完成', `成功导入 ${successCount} 个笔记，跳过 ${originalSkippedCount} 个重复文件\n${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹！${duplicateCount > 0 ? `\n⚠️ 检测到 ${duplicateCount} 个重复内容` : ''}`, 'success');
       
       // 强制刷新目录树
       // 等待一段时间确保所有操作完成，然后触发状态更新

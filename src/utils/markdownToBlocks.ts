@@ -40,29 +40,29 @@ interface MarkdownElement {
 function parseTextStyles(text: string): { content: TextContent[]; remainingText: string } {
   const content: TextContent[] = [];
   let remainingText = text;
-  
-  // 处理代码样式 (优先级最高)
+
+  // 处理代码样式 (优先级最高) - 每次创建新的正则表达式实例避免状态污染
   const codeRegex = /`([^`]+)`/g;
-  let match;
-  let lastIndex = 0;
+  const codeMatches = [...text.matchAll(codeRegex)];
   const tempParts: { text: string; styles: TextStyle }[] = [];
-  
-  while ((match = codeRegex.exec(text)) !== null) {
+  let lastIndex = 0;
+
+  for (const match of codeMatches) {
     // 添加代码标记前的文本
-    if (match.index > lastIndex) {
-      tempParts.push({ 
-        text: text.substring(lastIndex, match.index), 
-        styles: {} 
+    if (match.index! > lastIndex) {
+      tempParts.push({
+        text: text.substring(lastIndex, match.index!),
+        styles: {}
       });
     }
-    
+
     // 添加代码样式文本
-    tempParts.push({ 
-      text: match[1], 
-      styles: { code: true } 
+    tempParts.push({
+      text: match[1],
+      styles: { code: true }
     });
-    
-    lastIndex = match.index + match[0].length;
+
+    lastIndex = match.index! + match[0].length;
   }
   
   // 添加剩余文本
@@ -82,57 +82,60 @@ function parseTextStyles(text: string): { content: TextContent[]; remainingText:
     let currentText = part.text;
     const baseStyles = part.styles;
     
-    // 处理加粗 (**text** 或 __text__)
-    const boldRegex1 = /\*\*(.*?)\*\*/g;
-    const boldRegex2 = /__(.*?)__/g;
+    // 处理加粗 (**text** 或 __text__) - 使用 matchAll 避免状态污染
     let newParts: { text: string; styles: TextStyle }[] = [];
-    
+
     // 处理 **text** 格式
-    let match2;
+    const boldRegex1 = /\*\*(.*?)\*\*/g;
+    const boldMatches1 = [...currentText.matchAll(boldRegex1)];
     let lastIdx = 0;
-    while ((match2 = boldRegex1.exec(currentText)) !== null) {
-      if (match2.index > lastIdx) {
-        newParts.push({ 
-          text: currentText.substring(lastIdx, match2.index), 
-          styles: { ...baseStyles } 
+
+    for (const match of boldMatches1) {
+      if (match.index! > lastIdx) {
+        newParts.push({
+          text: currentText.substring(lastIdx, match.index!),
+          styles: { ...baseStyles }
         });
       }
-      newParts.push({ 
-        text: match2[1], 
-        styles: { ...baseStyles, bold: true } 
+      newParts.push({
+        text: match[1],
+        styles: { ...baseStyles, bold: true }
       });
-      lastIdx = match2.index + match2[0].length;
+      lastIdx = match.index! + match[0].length;
     }
-    
+
     if (lastIdx < currentText.length) {
-      newParts.push({ 
-        text: currentText.substring(lastIdx), 
-        styles: { ...baseStyles } 
+      newParts.push({
+        text: currentText.substring(lastIdx),
+        styles: { ...baseStyles }
       });
     }
-    
+
     // 如果没有找到**格式，尝试处理__格式
-    if (newParts.length === 0) {
-      let match3;
+    if (newParts.length === 1 && newParts[0].text === currentText) {
+      newParts = [];
+      const boldRegex2 = /__(.*?)__/g;
+      const boldMatches2 = [...currentText.matchAll(boldRegex2)];
       let lastIdx2 = 0;
-      while ((match3 = boldRegex2.exec(currentText)) !== null) {
-        if (match3.index > lastIdx2) {
-          newParts.push({ 
-            text: currentText.substring(lastIdx2, match3.index), 
-            styles: { ...baseStyles } 
+
+      for (const match of boldMatches2) {
+        if (match.index! > lastIdx2) {
+          newParts.push({
+            text: currentText.substring(lastIdx2, match.index!),
+            styles: { ...baseStyles }
           });
         }
-        newParts.push({ 
-          text: match3[1], 
-          styles: { ...baseStyles, bold: true } 
+        newParts.push({
+          text: match[1],
+          styles: { ...baseStyles, bold: true }
         });
-        lastIdx2 = match3.index + match3[0].length;
+        lastIdx2 = match.index! + match[0].length;
       }
-      
+
       if (lastIdx2 < currentText.length) {
-        newParts.push({ 
-          text: currentText.substring(lastIdx2), 
-          styles: { ...baseStyles } 
+        newParts.push({
+          text: currentText.substring(lastIdx2),
+          styles: { ...baseStyles }
         });
       }
     }
@@ -140,62 +143,64 @@ function parseTextStyles(text: string): { content: TextContent[]; remainingText:
     // 如果没有加粗样式，使用原始文本
     const partsWithBold = newParts.length > 0 ? newParts : [{ text: currentText, styles: baseStyles }];
     
-    // 处理斜体 (*text* 或 _text_)
+    // 处理斜体 (*text* 或 _text_) - 使用 matchAll 避免状态污染
     const finalParts: { text: string; styles: TextStyle }[] = [];
     for (const part2 of partsWithBold) {
       let currentText2 = part2.text;
       const baseStyles2 = part2.styles;
-      
-      const italicRegex1 = /\*(.*?)\*/g;
-      const italicRegex2 = /_(.*?)_/g;
       let newParts2: { text: string; styles: TextStyle }[] = [];
-      
+
       // 处理 *text* 格式
-      let match4;
+      const italicRegex1 = /\*(.*?)\*/g;
+      const italicMatches1 = [...currentText2.matchAll(italicRegex1)];
       let lastIdx3 = 0;
-      while ((match4 = italicRegex1.exec(currentText2)) !== null) {
-        if (match4.index > lastIdx3) {
-          newParts2.push({ 
-            text: currentText2.substring(lastIdx3, match4.index), 
-            styles: { ...baseStyles2 } 
+
+      for (const match of italicMatches1) {
+        if (match.index! > lastIdx3) {
+          newParts2.push({
+            text: currentText2.substring(lastIdx3, match.index!),
+            styles: { ...baseStyles2 }
           });
         }
-        newParts2.push({ 
-          text: match4[1], 
-          styles: { ...baseStyles2, italic: true } 
+        newParts2.push({
+          text: match[1],
+          styles: { ...baseStyles2, italic: true }
         });
-        lastIdx3 = match4.index + match4[0].length;
+        lastIdx3 = match.index! + match[0].length;
       }
-      
+
       if (lastIdx3 < currentText2.length) {
-        newParts2.push({ 
-          text: currentText2.substring(lastIdx3), 
-          styles: { ...baseStyles2 } 
+        newParts2.push({
+          text: currentText2.substring(lastIdx3),
+          styles: { ...baseStyles2 }
         });
       }
-      
+
       // 如果没有找到*格式，尝试处理_格式
-      if (newParts2.length === 0) {
-        let match5;
+      if (newParts2.length === 1 && newParts2[0].text === currentText2) {
+        newParts2 = [];
+        const italicRegex2 = /_(.*?)_/g;
+        const italicMatches2 = [...currentText2.matchAll(italicRegex2)];
         let lastIdx4 = 0;
-        while ((match5 = italicRegex2.exec(currentText2)) !== null) {
-          if (match5.index > lastIdx4) {
-            newParts2.push({ 
-              text: currentText2.substring(lastIdx4, match5.index), 
-              styles: { ...baseStyles2 } 
+
+        for (const match of italicMatches2) {
+          if (match.index! > lastIdx4) {
+            newParts2.push({
+              text: currentText2.substring(lastIdx4, match.index!),
+              styles: { ...baseStyles2 }
             });
           }
-          newParts2.push({ 
-            text: match5[1], 
-            styles: { ...baseStyles2, italic: true } 
+          newParts2.push({
+            text: match[1],
+            styles: { ...baseStyles2, italic: true }
           });
-          lastIdx4 = match5.index + match5[0].length;
+          lastIdx4 = match.index! + match[0].length;
         }
-        
+
         if (lastIdx4 < currentText2.length) {
-          newParts2.push({ 
-            text: currentText2.substring(lastIdx4), 
-            styles: { ...baseStyles2 } 
+          newParts2.push({
+            text: currentText2.substring(lastIdx4),
+            styles: { ...baseStyles2 }
           });
         }
       }
@@ -225,26 +230,28 @@ function parseTextStyles(text: string): { content: TextContent[]; remainingText:
  */
 function parseLinks(text: string): (TextContent | any)[] {
   const content: (TextContent | any)[] = [];
+
+  // 使用 matchAll 避免正则表达式状态污染
   const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
-  let match;
+  const linkMatches = [...text.matchAll(linkRegex)];
   let lastIndex = 0;
-  
-  while ((match = linkRegex.exec(text)) !== null) {
+
+  for (const match of linkMatches) {
     // 添加链接前的文本
-    if (match.index > lastIndex) {
-      const beforeText = text.substring(lastIndex, match.index);
+    if (match.index! > lastIndex) {
+      const beforeText = text.substring(lastIndex, match.index!);
       const { content: styledContent } = parseTextStyles(beforeText);
       content.push(...styledContent);
     }
-    
+
     // 添加链接
     content.push({
       type: 'link',
       href: match[2],
       content: match[1]
     });
-    
-    lastIndex = match.index + match[0].length;
+
+    lastIndex = match.index! + match[0].length;
   }
   
   // 添加剩余文本
