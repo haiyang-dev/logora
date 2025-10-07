@@ -250,8 +250,8 @@ app.post('/api/notes/:filePath', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid content format' });
     }
     
-    // 直接保存文件，允许覆盖已存在的文件
-    fs.writeFileSync(fullPath, JSON.stringify(content, null, 2), 'utf8');
+    // 异步保存文件，允许覆盖已存在的文件
+    await fs.promises.writeFile(fullPath, JSON.stringify(content, null, 2), 'utf8');
         
     res.json({ success: true });
   } catch (error) {

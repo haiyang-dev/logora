@@ -458,49 +458,39 @@ export class ImportManager {
       
       
       
-      // 处理所有Markdown文件
-      let processedCount = 0;
-      let skippedCount = 0;
-      let totalMarkdownFiles = markdownFiles.length;
+      // 预处理：检查重复文件并收集所有要导入的笔记
+      const notesToImport: Array<{
+        fileHandle: FileSystemFileHandle;
+        path: string;
+        fileName: string;
+        shouldOverwrite: boolean;
+        existingNoteInfo?: any;
+      }> = [];
 
+      console.log(`[DEBUG] 开始预处理 ${markdownFiles.length} 个Markdown文件...`);
+
+      // 第一遍：检查重复文件，一次性处理所有确认
       for (let i = 0; i < markdownFiles.length; i++) {
         const {handle: fileHandle, path} = markdownFiles[i];
-        const file = await fileHandle.getFile();
         const fileName = path.replace(/\\/g, '/').replace(/\.[^/.]+$/, "");
 
-        // 重新获取当前笔记列表，确保包含最新的状态
-        // 这里需要从API获取最新的笔记列表，因为我们可能已经删除或添加了笔记
-        let currentNotes = [];
-        try {
-          const response = await fetch('http://localhost:3001/api/notes');
-          if (response.ok) {
-            currentNotes = await response.json();
-          }
-        } catch (error) {
-          console.error('Failed to fetch current notes:', error);
-          // 如果获取失败，使用原有的existingNotes
-          currentNotes = existingNotes;
-        }
+        const existingNoteInfo = this.checkExistingNote(fileName, existingNotes);
 
-        // 检查是否已存在同名笔记
-        const existingNoteInfo = this.checkExistingNote(fileName, currentNotes);
         if (existingNoteInfo) {
-          
+          console.log(`[DEBUG] 发现重复文件: ${fileName}`);
 
-          // 定位到目录树并显示确认弹窗
+          // 对于重复文件，我们需要询问用户
           const shouldOverwrite = await this.confirmOverwriteDuplicate(
             existingNoteInfo.fullPath,
             dispatch
           );
 
           if (!shouldOverwrite) {
-            
-            skippedCount++;
-            continue; // 跳过此文件
+            console.log(`[DEBUG] 用户跳过重复文件: ${fileName}`);
+            continue;
           }
 
           // 如果选择覆盖，先删除现有笔记
-          
           dispatch({
             type: 'DELETE_NOTE',
             payload: existingNoteInfo.note.id
@@ -509,21 +499,49 @@ export class ImportManager {
           // 等待删除完成
           await new Promise(resolve => setTimeout(resolve, 100));
 
-          // 重新显示进度提示（因为刚才隐藏了弹窗）
-          this.progressAlert.show('正在导入', `正在处理: ${fileName}`, 'info');
+          notesToImport.push({
+            fileHandle,
+            path,
+            fileName,
+            shouldOverwrite: true,
+            existingNoteInfo
+          });
+        } else {
+          notesToImport.push({
+            fileHandle,
+            path,
+            fileName,
+            shouldOverwrite: false
+          });
         }
+      }
+
+      console.log(`[DEBUG] 预处理完成，准备导入 ${notesToImport.length} 个笔记`);
+
+    // 批量处理所有要导入的笔记
+      console.log(`[DEBUG] 开始批量处理 ${notesToImport.length} 个笔记...`);
+
+      const notesToCreate: Array<{
+        title: string;
+        content: any[];
+        filePath: string;
+        isOverwrite: boolean;
+      }> = [];
+
+      // 第一步：解析所有Markdown文件，准备批量创建
+      for (let i = 0; i < notesToImport.length; i++) {
+        const {fileHandle, path, fileName, shouldOverwrite, existingNoteInfo} = notesToImport[i];
+        const file = await fileHandle.getFile();
 
         // 更新进度提示
         processedCount++;
-        this.progressAlert.update(`正在导入笔记 (${processedCount}/${totalMarkdownFiles})`, `正在处理: ${fileName}`, 'info');
-        
+        this.progressAlert.update(`正在解析笔记 (${processedCount}/${notesToImport.length})`, `正在处理: ${fileName}`, 'info');
+
         try {
           // 读取文件内容
           let content = await file.text();
 
-          console.log(`[DEBUG] 导入文件 ${fileName}, 原始内容长度: ${content.length}`);
-          console.log(`[DEBUG] 原始内容前100字符: ${content.substring(0, 100)}`);
-
+          console.log(`[DEBUG] 解析文件 ${fileName}, 原始内容长度: ${content.length}`);
 
           // 查找Markdown中引用的.resources/images路径的图片并添加到上传映射
           const updatedUploadedImages = { ...uploadedImages };
@@ -531,49 +549,33 @@ export class ImportManager {
           let match;
           while ((match = imageRegex.exec(content)) !== null) {
             const imagePath = match[2];
-            
-            
-            // 从allFileHandles中查找对应的图片文件
-            const fileName = imagePath.split('/').pop();
-            if (fileName) {
-              const imageFile = allFileHandles.find(f => f.path.endsWith(fileName) && 
+            const imageFileName = imagePath.split('/').pop();
+            if (imageFileName) {
+              const imageFile = allFileHandles.find(f => f.path.endsWith(imageFileName) &&
                 (f.path.includes('.resources/images/') || f.path.includes('.resources\\images\\')));
-              
+
               if (imageFile) {
-                
-                // 上传图片
                 try {
                   const imageFileContent = await imageFile.handle.getFile();
                   const imageUrl = await this.uploadImageToServer(imageFileContent);
                   updatedUploadedImages[imagePath] = imageUrl;
-                  
                 } catch (uploadError) {
                   console.error(`Failed to upload .resources image ${imagePath}:`, uploadError);
                 }
-              } else {
-                
-                // 列出所有收集到的文件以便调试
-                
               }
             }
           }
-          
-          // 替换Markdown中的图片路径为上传后的URL（基于笔记所在目录解析相对路径）
+
+          // 替换Markdown中的图片路径为上传后的URL
           const noteDirPath = path.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
           content = this.replaceImagePathsV2(content, updatedUploadedImages, noteDirPath);
-          
-          
-          
+
           // 解析Markdown内容为BlockNote格式
           let blocks: Block[] = [];
           try {
-            // 使用我们自定义的无损转换器
             blocks = parseMarkdownToBlocks(content) as Block[];
-
           } catch (parseError) {
-            console.warn(`解析Markdown内容失败，使用空内容:`, parseError);
-            console.log(`[DEBUG] 解析失败，使用原始内容作为段落块: ${content.substring(0, 100)}`);
-            // 如果解析失败，创建一个包含原始Markdown内容的段落块
+            console.warn(`解析Markdown内容失败:`, parseError);
             blocks = [{
               id: uuidv4(),
               type: "paragraph",
@@ -591,71 +593,59 @@ export class ImportManager {
             }] as Block[];
           }
 
-          console.log(`[DEBUG] 解析完成，生成块数量: ${blocks.length}`);
-          if (blocks.length > 0) {
-            console.log(`[DEBUG] 第一个块的内容:`, JSON.stringify(blocks[0].content, null, 2));
-          }
-          
-          // 创建新笔记
-          // 只使用文件名作为标题，而不是完整路径
+          console.log(`[DEBUG] 解析完成 ${fileName}, 块数量: ${blocks.length}`);
+
+          // 准备笔记数据
           const noteTitle = fileName.split('/').pop() || fileName;
-          // 确保文件路径以 .json 结尾
           const noteFilePath = fileName.endsWith('.json') ? fileName : `${fileName}.json`;
-          
-          
-          // 创建笔记 - 使用深拷贝确保每个笔记都有独立的内容
-          const clonedBlocks = JSON.parse(JSON.stringify(blocks));
 
-          console.log(`[DEBUG] 准备创建笔记 ${noteTitle}`);
-          console.log(`[DEBUG] 文件路径: ${noteFilePath}`);
-          console.log(`[DEBUG] 深拷贝后的块数量: ${clonedBlocks.length}`);
-          if (clonedBlocks.length > 0) {
-            console.log(`[DEBUG] 第一个块的最终内容:`, JSON.stringify(clonedBlocks[0].content, null, 2));
-          }
-
-          dispatch({
-            type: 'ADD_NOTE_WITH_FILE',
-            payload: {
-              title: noteTitle,  // 使用文件名作为标题
-              content: clonedBlocks,
-              isFolder: false,
-              filePath: noteFilePath  // 使用正确的文件路径
-            }
+          notesToCreate.push({
+            title: noteTitle,
+            content: JSON.parse(JSON.stringify(blocks)), // 深拷贝
+            filePath: noteFilePath,
+            isOverwrite: shouldOverwrite
           });
-          
-          
-          // 等待状态更新完成
-          await new Promise(resolve => setTimeout(resolve, 100));
-          
-          // 如果是覆盖操作，导入完成后定位到该笔记
-          if (existingNoteInfo) {
-            
-            // 等待更长时间确保笔记创建完成
-            await new Promise(resolve => setTimeout(resolve, 200));
-            
-            // 直接通过ID选择笔记，而不是通过路径
-            
-            // 由于我们无法直接获取新创建笔记的ID，我们需要通过路径查找
-            setTimeout(() => {
-              dispatch({
-                type: 'SELECT_NOTE_AND_EXPAND_BY_PATH',
-                payload: noteFilePath
-              });
-              
-            }, 50);
-          }
-          
-          
+
         } catch (error) {
-          console.error(`导入笔记 ${fileName} 失败:`, error);
-          this.progressAlert.update('导入出错', `导入笔记 ${fileName} 失败: ${(error as Error).message}`, 'error');
-          // 继续处理其他文件
+          console.error(`解析笔记 ${fileName} 失败:`, error);
+          this.progressAlert.update('解析出错', `解析笔记 ${fileName} 失败: ${(error as Error).message}`, 'error');
+        }
+      }
+
+      console.log(`[DEBUG] 解析完成，开始批量创建 ${notesToCreate.length} 个笔记...`);
+
+      // 第二步：批量创建所有笔记（适当延迟以避免文件系统竞争）
+      for (let i = 0; i < notesToCreate.length; i++) {
+        const note = notesToCreate[i];
+
+        this.progressAlert.update(`正在创建笔记 (${i + 1}/${notesToCreate.length})`, `正在创建: ${note.title}`, 'info');
+
+        console.log(`[DEBUG] 创建笔记: ${note.title}, 路径: ${note.filePath}`);
+        if (note.content.length > 0) {
+          console.log(`[DEBUG] 第一个块内容:`, JSON.stringify(note.content[0].content, null, 2));
+        }
+
+        dispatch({
+          type: 'ADD_NOTE_WITH_FILE',
+          payload: {
+            title: note.title,
+            content: note.content,
+            isFolder: false,
+            filePath: note.filePath
+          }
+        });
+
+        // 每创建10个笔记后稍作停顿，避免文件系统压力过大
+        if ((i + 1) % 10 === 0) {
+          console.log(`[DEBUG] 已创建 ${i + 1} 个笔记，稍作停顿...`);
+          await new Promise(resolve => setTimeout(resolve, 50));
         }
       }
       
       // 显示完成提示
-      const successCount = processedCount - skippedCount;
-      this.progressAlert.update('导入完成', `成功导入 ${successCount} 个笔记，跳过 ${skippedCount} 个重复文件\n${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹！`, 'success');
+      const successCount = processedCount; // 现在processedCount就是实际导入的数量
+      const originalSkippedCount = markdownFiles.length - notesToImport.length;
+      this.progressAlert.update('导入完成', `成功导入 ${successCount} 个笔记，跳过 ${originalSkippedCount} 个重复文件\n${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹！`, 'success');
       
       // 强制刷新目录树
       // 等待一段时间确保所有操作完成，然后触发状态更新
