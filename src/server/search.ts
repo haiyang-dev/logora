@@ -42,7 +42,6 @@ class SearchEngine {
     
     try {
       await this.indexDirectory(NOTES_DIR);
-      console.log(`Search index built with ${this.index.length} items`);
     } catch (error) {
       console.error('Failed to build search index:', error);
       throw error; // 重新抛出错误以便调用者处理

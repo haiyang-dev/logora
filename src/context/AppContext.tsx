@@ -177,7 +177,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
 
       // 如果已存在相同 filePath 的文件夹，则跳过添加，避免目录树重复
       if (folderPath && Object.values(state.notes).some(n => n.isFolder && n.filePath === folderPath)) {
-        console.log('ADD_FOLDER: Folder already exists, skip adding:', folderPath);
         return {
           ...state,
           selectedNoteId: state.selectedNoteId,
@@ -196,8 +195,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
         filePath: folderPath  // 确保设置正确的filePath
       };
 
-      console.log('ADD_FOLDER: Creating folder with:', { id, folderTitle, folderPath, parentId });
-
       // 异步创建文件夹（不等待结果）
       if (folderPath) {
         FileSystemManager.createFolder(folderPath).catch(error => {
@@ -210,8 +207,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ...state.notes,
         [id]: newFolder,
       };
-
-      console.log('ADD_FOLDER: State after creation:', newNotes);
 
       return {
         ...state,
@@ -226,39 +221,31 @@ function appReducer(state: AppState, action: AppAction): AppState {
       
       // 确定父级文件夹ID
       let parentId: string | undefined = action.payload.parentId; // 优先使用显式指定的parentId
-      
-      console.log('ADD_NOTE_WITH_FILE action:', action.payload);
-      
+
       // 如果没有显式指定parentId，尝试从filePath中推断
       if (!parentId && action.payload.filePath) {
         // 从文件路径中提取父级路径
         const pathParts = action.payload.filePath.replace(/\\/g, '/').split('/');
-        console.log('Path parts:', pathParts);
         if (pathParts.length > 1) {
           // 移除文件名部分
           pathParts.pop();
           const parentPath = pathParts.join('/');
-          console.log('Looking for parent folder with path:', parentPath);
-          
+
           // 查找匹配的父级文件夹
-          const parentFolder = Object.values(state.notes).find(note => 
+          const parentFolder = Object.values(state.notes).find(note =>
             note.isFolder && note.filePath === parentPath
           );
-          
-          console.log('Direct parent folder found:', parentFolder);
-          
+
           if (parentFolder) {
             parentId = parentFolder.id;
           } else {
             // 如果直接父级没找到，尝试查找更上层的父级
             for (let i = pathParts.length - 1; i >= 0; i--) {
               const partialPath = pathParts.slice(0, i).join('/');
-              console.log('Looking for ancestor folder with path:', partialPath);
-              const ancestorFolder = Object.values(state.notes).find(note => 
+              const ancestorFolder = Object.values(state.notes).find(note =>
                 note.isFolder && note.filePath === partialPath
               );
               if (ancestorFolder) {
-                console.log('Ancestor folder found:', ancestorFolder);
                 parentId = ancestorFolder.id;
                 break;
               }
@@ -269,9 +256,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
           parentId = undefined;
         }
       }
-      
-      console.log('Determined parentId:', parentId);
-      
+
       const newNote: Note = {
         id,
         title: action.payload.title,
@@ -293,8 +278,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
         isFolder: action.payload.isFolder,
         filePath: action.payload.filePath
       };
-      
-      console.log('ADD_NOTE_WITH_FILE: Creating note with:', { id, title: action.payload.title, filePath: action.payload.filePath, parentId });
 
       // 只有非文件夹笔记才创建文件
       if (!action.payload.isFolder && action.payload.filePath) {
@@ -327,9 +310,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
       }
       // 添加新笔记
       newNotes[id] = newNote;
-
-      console.log('ADD_NOTE_WITH_FILE: State after creation:', newNotes);
-      console.log('ADD_NOTE_WITH_FILE: New note ID:', id);
 
       return {
         ...state,
@@ -456,9 +436,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
     
     case 'DELETE_NOTE': {
       const noteToDelete = state.notes[action.payload];
-      console.log('DELETE_NOTE called with id:', action.payload);
-      console.log('Note to delete:', noteToDelete);
-      
+
       // 如果笔记有文件路径，尝试删除文件系统中的文件或文件夹
       if (noteToDelete && noteToDelete.filePath) {
         if (noteToDelete.isFolder) {
@@ -473,14 +451,12 @@ function appReducer(state: AppState, action: AppAction): AppState {
           });
         }
       }
-      
+
       const newNotes = { ...state.notes };
       delete newNotes[action.payload];
-      console.log('Notes after deletion:', newNotes);
-      
+
       // 如果删除的是当前选中的笔记，清除选中状态
       const newSelectedNoteId = state.selectedNoteId === action.payload ? null : state.selectedNoteId;
-      console.log('New selected note ID:', newSelectedNoteId);
       
       return {
         ...state,
@@ -553,41 +529,32 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'SELECT_NOTE_AND_EXPAND_BY_PATH': {
       // 通过文件路径查找并选择笔记
       const filePath = action.payload;
-      console.log('SELECT_NOTE_AND_EXPAND_BY_PATH called with filePath:', filePath);
-      console.log('Current notes count:', Object.keys(state.notes).length);
-      
+
       // 直接查找笔记
       const note = Object.values(state.notes).find(n => n.filePath === filePath);
-      console.log('Found note by filePath:', note);
-      
+
       if (!note) {
-        console.log('Note not found for filePath:', filePath);
         return state;
       }
-      
+
       // 收集所有需要展开的父级文件夹
       const foldersToExpand: string[] = [];
       let currentNoteId: string | undefined = note.parentId;
-      
-      console.log('Collecting parent folders for note:', note.id);
+
       while (currentNoteId) {
         const parentNote = state.notes[currentNoteId];
-        console.log('Checking parent note:', parentNote);
         if (parentNote && parentNote.isFolder) {
           foldersToExpand.push(currentNoteId);
-          console.log('Adding folder to expand:', currentNoteId);
           currentNoteId = parentNote.parentId;
         } else {
           break;
         }
       }
-      
+
       const newExpanded = new Set(state.expandedFolders);
       foldersToExpand.forEach(folderId => {
         newExpanded.add(folderId);
       });
-      
-      console.log('Final expanded folders:', Array.from(newExpanded));
       
       return {
         ...state,
@@ -603,12 +570,9 @@ function appReducer(state: AppState, action: AppAction): AppState {
       };
     
     case 'LOAD_FILE_SYSTEM_NOTES': {
-      console.log('处理LOAD_FILE_SYSTEM_NOTES动作，payload:', action.payload);
       // 将文件系统笔记转换为应用笔记格式
       const convertToNotes = (items: any[], parentId?: string): Record<string, Note> => {
         const notes: Record<string, Note> = {};
-        
-        console.log('convertToNotes调用，items:', items, 'parentId:', parentId);
         
         items.forEach(item => {
           const id = item.id;
@@ -640,13 +604,11 @@ function appReducer(state: AppState, action: AppAction): AppState {
           }
         });
         
-        console.log('convertToNotes返回，notes:', notes);
-        return notes;
+                return notes;
       };
       
       const fileSystemNotes = convertToNotes(action.payload);
-      console.log('转换后的笔记对象:', fileSystemNotes);
-      
+            
       return {
         ...state,
         notes: fileSystemNotes,

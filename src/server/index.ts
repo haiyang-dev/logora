@@ -135,52 +135,34 @@ app.get('/api/notes', (_req: Request, res: Response) => {
 app.post('/api/notes/rename', async (req: Request, res: Response) => {
   try {
     const { oldPath, newPath } = req.body;
-    
-    console.log('重命名请求:', { oldPath, newPath });
-    
+
     // 将URL中的正斜杠转换为系统路径分隔符
     const systemOldPath = oldPath.replace(/\//g, path.sep);
     const systemNewPath = newPath.replace(/\//g, path.sep);
-    
+
     // 确保文件路径在 workspace 目录内，防止路径遍历攻击
     const fullOldPath = path.join(WORKSPACE_DIR, systemOldPath);
     const fullNewPath = path.join(WORKSPACE_DIR, systemNewPath);
-    
-    console.log('完整旧路径:', fullOldPath);
-    console.log('完整新路径:', fullNewPath);
-    console.log('WORKSPACE_DIR:', WORKSPACE_DIR);
-    
+
     // 使用 path.resolve 确保路径正确解析
     const resolvedOldPath = path.resolve(fullOldPath);
     const resolvedNewPath = path.resolve(fullNewPath);
     const resolvedWorkspaceDir = path.resolve(WORKSPACE_DIR);
-    
-    console.log('解析后的旧路径:', resolvedOldPath);
-    console.log('解析后的新路径:', resolvedNewPath);
-    console.log('解析后的WORKSPACE_DIR:', resolvedWorkspaceDir);
-    console.log('旧路径验证:', resolvedOldPath.startsWith(resolvedWorkspaceDir));
-    console.log('新路径验证:', resolvedNewPath.startsWith(resolvedWorkspaceDir));
-    
+
     if (!resolvedOldPath.startsWith(resolvedWorkspaceDir) || !resolvedNewPath.startsWith(resolvedWorkspaceDir)) {
-      console.log('路径验证失败');
       return res.status(400).json({ error: 'Invalid file path' });
     }
-    
+
     // 检查原文件是否存在
     if (!fs.existsSync(resolvedOldPath)) {
-      console.log('原文件不存在:', resolvedOldPath);
       return res.status(404).json({ error: 'Note not found' });
     }
-    
+
     // 确保目标目录存在
     const newDirPath = path.dirname(resolvedNewPath);
     if (!fs.existsSync(newDirPath)) {
-      console.log('创建目录:', newDirPath);
       fs.mkdirSync(newDirPath, { recursive: true });
     }
-    
-    // 重命名文件
-    console.log('重命名文件:', resolvedOldPath, '->', resolvedNewPath);
     fs.renameSync(resolvedOldPath, resolvedNewPath);
     
     // 重建搜索索引
@@ -201,27 +183,20 @@ app.post('/api/notes/rename', async (req: Request, res: Response) => {
 app.get('/api/notes/:filePath', async (req: Request, res: Response) => {
   try {
     const filePath = decodeURIComponent(req.params.filePath);
-    
+
     // 将URL中的正斜杠转换为系统路径分隔符
     const systemPath = filePath.replace(/\//g, path.sep);
-    
+
     // 确保文件路径在 workspace 目录内，防止路径遍历攻击
     const fullPath = path.join(WORKSPACE_DIR, systemPath);
-    
-    console.log('请求的文件路径:', filePath);
-    console.log('系统路径:', systemPath);
-    console.log('完整文件路径:', fullPath);
-    console.log('WORKSPACE_DIR:', WORKSPACE_DIR);
-    console.log('路径验证:', fullPath.startsWith(WORKSPACE_DIR));
-    
+
     if (!fullPath.startsWith(WORKSPACE_DIR)) {
       return res.status(400).json({ error: 'Invalid file path' });
     }
-    
+
     // 直接读取JSON文件
     if (fs.existsSync(fullPath)) {
       // 如果文件存在，直接读取并返回
-      console.log('找到JSON文件，直接加载编辑器状态');
       const jsonContent = fs.readFileSync(fullPath, { encoding: 'utf8' });
       const blocks = JSON.parse(jsonContent);
 
@@ -235,10 +210,9 @@ app.get('/api/notes/:filePath', async (req: Request, res: Response) => {
       });
       return;
     }
-    
+
     // 如果不存在，返回空内容
-    console.log('文件不存在:', fullPath);
-    res.json({ 
+    res.json({
       content: []
     });
   } catch (error) {
@@ -253,17 +227,14 @@ app.post('/api/notes/:filePath', async (req: Request, res: Response) => {
     const filePath = decodeURIComponent(req.params.filePath);
     const { content } = req.body;
     
-    console.log('收到保存请求:', { filePath, contentLength: content?.length || 0 });
-    
+        
     // 将URL中的正斜杠转换为系统路径分隔符
     const systemPath = filePath.replace(/\//g, path.sep);
     
     // 确保文件路径在 workspace 目录内，防止路径遍历攻击
     const fullPath = path.join(WORKSPACE_DIR, systemPath);
     
-    console.log('完整文件路径:', fullPath);
-    console.log('路径验证:', fullPath.startsWith(WORKSPACE_DIR));
-    
+        
     if (!fullPath.startsWith(WORKSPACE_DIR)) {
       return res.status(400).json({ error: 'Invalid file path' });
     }
@@ -271,8 +242,7 @@ app.post('/api/notes/:filePath', async (req: Request, res: Response) => {
     // 确保目录存在
     const dirPath = path.dirname(fullPath);
     if (!fs.existsSync(dirPath)) {
-      console.log('创建目录:', dirPath);
-      fs.mkdirSync(dirPath, { recursive: true });
+            fs.mkdirSync(dirPath, { recursive: true });
     }
     
     // 验证内容
@@ -283,8 +253,7 @@ app.post('/api/notes/:filePath', async (req: Request, res: Response) => {
     
     // 直接保存文件，允许覆盖已存在的文件
     fs.writeFileSync(fullPath, JSON.stringify(content, null, 2), 'utf8');
-    console.log('JSON状态文件保存成功:', fullPath);
-    
+        
     res.json({ success: true });
   } catch (error) {
     console.error('Failed to save note:', error);
@@ -344,7 +313,6 @@ app.get('/api/resource/:fileName', (req: Request, res: Response) => {
     
     // 检查文件是否存在
     if (!fs.existsSync(resourcePath)) {
-      console.log('资源文件不存在:', resourcePath);
       return res.status(404).json({ error: 'Resource not found' });
     }
     

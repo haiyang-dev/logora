@@ -72,20 +72,17 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
     try {
       // 使用我们自定义的图片上传管理器
       const imageUrl = await ImageUploadManager.uploadImage(file, ''); // 移除不必要的参数
-      console.log('图片上传成功，URL:', imageUrl);
-      
+
       // 验证图片URL是否可访问
       try {
         const response = await fetch(imageUrl, { method: 'HEAD' });
         if (!response.ok) {
           console.warn('图片URL可能无法访问:', imageUrl, response.status);
-        } else {
-          console.log('图片URL验证成功:', imageUrl, response.status);
         }
       } catch (verifyError) {
         console.warn('图片URL验证失败:', imageUrl, verifyError);
       }
-      
+
       // 返回URL字符串
       return imageUrl;
     } catch (error) {
@@ -101,7 +98,6 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
       try {
         // 使用我们自定义的图片上传管理器
         const imageUrl = await ImageUploadManager.uploadImage(file, ''); // 移除不必要的参数
-        console.log('图片上传成功，URL:', imageUrl);
         return imageUrl;
       } catch (error) {
         console.error('图片上传失败:', error);
@@ -118,9 +114,7 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
       setEditor(null);
     };
   }, [editor, setEditor]);
-  
-  console.log('Editor 实例创建完成', editor?.document.length);
-  
+
   // 加载内容的副作用
   useEffect(() => {
     // 重置初始内容状态为loading
@@ -136,7 +130,6 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
     if (selectedNote.filePath) {
       loadFromStorage(selectedNote.filePath)
         .then((data) => {
-          console.log('从后端接收到的内容:', JSON.stringify(data.content, null, 2));
           setInitialContent(data.content || []);
           // 使用文件的实际修改时间初始化lastSaved
           if (data.lastModified) {
@@ -166,7 +159,6 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
       return;
     }
 
-    console.log('更新编辑器内容', initialContent);
     // 确保 initialContent 是有效的数组
     const validInitialContent = Array.isArray(initialContent) && initialContent.length > 0
       ? initialContent // 直接使用从后端获取的内容
@@ -174,7 +166,6 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
 
     // 只有当编辑器内容为空时才替换内容，避免在已有内容时覆盖
     if (validInitialContent.length > 0) {
-      console.log('替换编辑器内容');
       // 设置加载标志，防止触发保存
       isLoadingContentRef.current = true;
       editor.replaceBlocks(editor.document, validInitialContent);
@@ -421,6 +412,5 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
   );
 }, (prevProps, nextProps) => {
   // 自定义比较函数，只有当 className 发生变化时才重新渲染
-  console.log('Editor props 比较', prevProps, nextProps);
   return prevProps.className === nextProps.className;
 });

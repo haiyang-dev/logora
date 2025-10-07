@@ -14,16 +14,8 @@ function AppContent() {
   useEffect(() => {
     const loadFileSystemNotes = async () => {
       try {
-        console.log('开始加载文件系统笔记...');
         const fileSystemNotes = await FileSystemManager.getAllNotes();
-        console.log('成功加载文件系统笔记:', fileSystemNotes.length, '个笔记');
-        console.log('文件系统笔记详情:', JSON.stringify(fileSystemNotes, null, 2));
         dispatch({ type: 'LOAD_FILE_SYSTEM_NOTES', payload: fileSystemNotes });
-        
-        // 添加一个延迟来检查状态是否更新
-        setTimeout(() => {
-          console.log('延迟检查状态更新完成');
-        }, 1000);
       } catch (error) {
         console.error('Failed to load file system notes:', error);
         // 显示错误信息而不是fallback到示例数据

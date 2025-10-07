@@ -19,7 +19,6 @@ interface SidebarProps {
 
 export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
   const { state, dispatch } = useApp();
-  console.log('Sidebar中的state:', state);
   
   const [newItemTitle, setNewItemTitle] = useState('');
   const [isCreating, setIsCreating] = useState(false);
@@ -133,21 +132,17 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
   const handleSelectNote = useCallback((noteId: string, e: React.MouseEvent) => {
     try {
       const note = state.notes[noteId];
-      console.log('handleSelectNote called with noteId:', noteId);
-      console.log('Note found:', note);
       if (!note) {
         console.warn('Note not found:', noteId);
         return;
       }
-      
+
       e.preventDefault();
       e.stopPropagation();
-      
+
       if (note.isFolder) {
-        console.log('Toggling folder:', noteId);
         dispatch({ type: 'TOGGLE_FOLDER', payload: noteId });
       } else {
-        console.log('Selecting note:', noteId);
         dispatch({ type: 'SELECT_NOTE', payload: noteId });
       }
     } catch (error) {
@@ -159,13 +154,12 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
   const handleRightClick = useCallback((e: React.MouseEvent, noteId?: string) => {
     e.preventDefault();
     const note = noteId ? state.notes[noteId] : null;
-    console.log('handleRightClick called with noteId:', noteId, 'note:', note);
-    
+
     // 如果点击的是文件或文件夹，选中它
     if (noteId && note) {
       dispatch({ type: 'SELECT_NOTE', payload: noteId });
     }
-    
+
     const contextMenuObj = {
       x: e.clientX,
       y: e.clientY,
@@ -173,7 +167,6 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
       isFolder: note?.isFolder || false,
       isEmptyArea: !noteId,
     };
-    console.log('Setting contextMenu:', contextMenuObj);
     setContextMenu(contextMenuObj);
   }, [state.notes, dispatch]);
 
@@ -215,9 +208,7 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
 
   // 处理移动笔记
   const handleMoveNote = useCallback((noteId: string) => {
-    console.log('handleMoveNote called with noteId:', noteId);
     const note = state.notes[noteId];
-    console.log('note:', note);
     if (note) {
       setMoveMode({
         sourceNoteId: noteId,
@@ -229,12 +220,9 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
 
   // 处理移动到目标文件夹
   const handleMoveToFolder = useCallback(async (targetFolderId?: string) => {
-    console.log('handleMoveToFolder called with targetFolderId:', targetFolderId);
-    console.log('moveMode:', moveMode);
     if (moveMode) {
       // 获取源笔记
       const sourceNote = state.notes[moveMode.sourceNoteId];
-      console.log('sourceNote:', sourceNote);
       if (!sourceNote || !sourceNote.filePath) {
         console.error('Source note not found or has no file path');
         setMoveMode(null);
@@ -243,38 +231,26 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
 
       // 计算新的文件路径
       let newFilePath = sourceNote.filePath;
-      console.log('Old file path:', sourceNote.filePath);
       if (targetFolderId) {
         // 移动到目标文件夹
         const targetFolder = state.notes[targetFolderId];
-        console.log('targetFolder:', targetFolder);
         if (targetFolder && targetFolder.filePath) {
           const fileName = sourceNote.filePath.split('/').pop();
           newFilePath = `${targetFolder.filePath}/${fileName}`;
-          console.log('Computed new file path:', newFilePath);
-        } else {
-          console.log('Target folder not found or has no filePath');
         }
       } else {
         // 移动到根目录
         const fileName = sourceNote.filePath.split('/').pop();
         newFilePath = fileName || sourceNote.filePath;
-        console.log('Moving to root, new file path:', newFilePath);
       }
-      console.log('New file path:', newFilePath);
 
       try {
         // 如果文件路径发生变化，需要在文件系统中移动文件
         if (sourceNote.filePath !== newFilePath) {
-          console.log('Calling FileSystemManager.renameNote with:', sourceNote.filePath, newFilePath);
           await FileSystemManager.renameNote(sourceNote.filePath, newFilePath);
-          console.log('FileSystemManager.renameNote completed successfully');
-        } else {
-          console.log('File path unchanged, skipping file system update');
         }
 
         // 更新前端状态
-        console.log('Updating frontend state');
         dispatch({
           type: 'UPDATE_NOTE',
           payload: {
@@ -285,7 +261,6 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
             }
           }
         });
-        console.log('Frontend state updated');
       } catch (error) {
         console.error('Failed to move note:', error);
         alert('移动笔记失败: ' + (error as Error).message);
@@ -351,20 +326,16 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
 
   // 处理导入完成后选择笔记
   const handleImportComplete = useCallback((noteFilePath: string) => {
-    console.log('handleImportComplete called with noteFilePath:', noteFilePath);
-    
     // 查找对应的笔记
     const note = Object.values(state.notes).find(n => n.filePath === noteFilePath);
-    console.log('Found note for import completion:', note);
-    
+
     if (note && !note.isFolder) {
-      console.log('Selecting imported note:', note.id);
       dispatch({ type: 'SELECT_NOTE', payload: note.id });
-      
+
       // 展开所有父级文件夹
       const foldersToExpand: string[] = [];
       let currentNoteId: string | undefined = note.parentId;
-      
+
       while (currentNoteId) {
         const parentNote = state.notes[currentNoteId];
         if (parentNote && parentNote.isFolder) {
@@ -374,9 +345,8 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
           break;
         }
       }
-      
+
       if (foldersToExpand.length > 0) {
-        console.log('Expanding parent folders:', foldersToExpand);
         dispatch({ type: 'EXPAND_FOLDERS', payload: foldersToExpand });
       }
     }
@@ -388,17 +358,14 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
       if (editor) {
         const existingNotes = Object.values(state.notes || {});
         const lastImportedNotePath = await ImportManager.importMarkdownNotes(dispatch, editor, existingNotes);
-        
+
         // 导入完成后，强制刷新状态
-        console.log('Import completed, forcing state refresh');
         dispatch({ type: 'FORCE_UPDATE' });
-        
+
         // 如果有最后导入的笔记路径，选择它
         if (lastImportedNotePath) {
-          console.log('Last imported note path:', lastImportedNotePath);
           // 等待状态更新完成
           setTimeout(() => {
-            console.log('Selecting last imported note');
             handleImportComplete(lastImportedNotePath);
           }, 500);
         }
@@ -954,7 +921,6 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
                 {contextMenu.isFolder && contextMenu.noteId !== moveMode.sourceNoteId && (
                   <button
                     onClick={() => {
-                      console.log('Move to folder button clicked, contextMenu.noteId:', contextMenu.noteId);
                       if (contextMenu.noteId) {
                         handleMoveToFolder(contextMenu.noteId);
                         setContextMenu(null); // 关闭右键菜单
