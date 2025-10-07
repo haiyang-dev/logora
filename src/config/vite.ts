@@ -25,7 +25,7 @@ export const BUILD_CONFIG = {
   OUT_DIR: 'dist',
   ASSETS_DIR: 'assets',
   SOURCES_DIR: 'src',
-  MINIFY: 'terser' as const,
+  MINIFY: false, // 暂时禁用 terser
   TARGET: 'es2015' as const,
   ROLLUP_OPTIONS: {
     output: {
@@ -36,7 +36,7 @@ export const BUILD_CONFIG = {
       }
     }
   }
-} as const;
+};
 
 // 环境变量配置
 export const ENV_CONFIG = {
