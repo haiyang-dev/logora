@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "server": "nodemon --exec tsx src/server/index.ts",
+    "server": "nodemon --exec tsx src/server/index.ts --ignore workspace/",
     "server:prod": "tsc -p tsconfig.server.json && node dist/server/index.js"
   },
   "dependencies": {
