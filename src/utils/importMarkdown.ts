@@ -520,10 +520,11 @@ export class ImportManager {
         try {
           // 读取文件内容
           let content = await file.text();
-          
-          
-          
-          
+
+          console.log(`[DEBUG] 导入文件 ${fileName}, 原始内容长度: ${content.length}`);
+          console.log(`[DEBUG] 原始内容前100字符: ${content.substring(0, 100)}`);
+
+
           // 查找Markdown中引用的.resources/images路径的图片并添加到上传映射
           const updatedUploadedImages = { ...uploadedImages };
           const imageRegex = /!\[([^\]]*)\]\((\.[^)]*\.resources\/images\/[^)]+)\)/g;
@@ -571,6 +572,7 @@ export class ImportManager {
 
           } catch (parseError) {
             console.warn(`解析Markdown内容失败，使用空内容:`, parseError);
+            console.log(`[DEBUG] 解析失败，使用原始内容作为段落块: ${content.substring(0, 100)}`);
             // 如果解析失败，创建一个包含原始Markdown内容的段落块
             blocks = [{
               id: uuidv4(),
@@ -588,6 +590,11 @@ export class ImportManager {
               children: []
             }] as Block[];
           }
+
+          console.log(`[DEBUG] 解析完成，生成块数量: ${blocks.length}`);
+          if (blocks.length > 0) {
+            console.log(`[DEBUG] 第一个块的内容:`, JSON.stringify(blocks[0].content, null, 2));
+          }
           
           // 创建新笔记
           // 只使用文件名作为标题，而不是完整路径
@@ -596,13 +603,21 @@ export class ImportManager {
           const noteFilePath = fileName.endsWith('.json') ? fileName : `${fileName}.json`;
           
           
-          // 创建笔记
-          
+          // 创建笔记 - 使用深拷贝确保每个笔记都有独立的内容
+          const clonedBlocks = JSON.parse(JSON.stringify(blocks));
+
+          console.log(`[DEBUG] 准备创建笔记 ${noteTitle}`);
+          console.log(`[DEBUG] 文件路径: ${noteFilePath}`);
+          console.log(`[DEBUG] 深拷贝后的块数量: ${clonedBlocks.length}`);
+          if (clonedBlocks.length > 0) {
+            console.log(`[DEBUG] 第一个块的最终内容:`, JSON.stringify(clonedBlocks[0].content, null, 2));
+          }
+
           dispatch({
             type: 'ADD_NOTE_WITH_FILE',
             payload: {
               title: noteTitle,  // 使用文件名作为标题
-              content: blocks,
+              content: clonedBlocks,
               isFolder: false,
               filePath: noteFilePath  // 使用正确的文件路径
             }
