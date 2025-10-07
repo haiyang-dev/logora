@@ -638,10 +638,10 @@ export class ImportManager {
           }
         });
 
-        // 每创建10个笔记后稍作停顿，避免文件系统压力过大
-        if ((i + 1) % 10 === 0) {
+        // 每创建5个笔记后稍作停顿，避免服务器压力过大
+        if ((i + 1) % 5 === 0) {
           console.log(`[DEBUG] 已创建 ${i + 1} 个笔记，稍作停顿...`);
-          await new Promise(resolve => setTimeout(resolve, 50));
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
       

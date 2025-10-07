@@ -181,7 +181,17 @@ app.post('/api/notes/rename', async (req: Request, res: Response) => {
 // API 路由：读取单个笔记内容
 app.get('/api/notes/:filePath', async (req: Request, res: Response) => {
   try {
-    const filePath = decodeURIComponent(req.params.filePath);
+    // 多重解码处理复杂的URL编码情况
+    let filePath = req.params.filePath;
+    try {
+      filePath = decodeURIComponent(filePath);
+      // 有些情况下可能需要双重解码
+      if (filePath.includes('%')) {
+        filePath = decodeURIComponent(filePath);
+      }
+    } catch (error) {
+      console.warn('Failed to decode file path:', filePath, error);
+    }
 
     // 将URL中的正斜杠转换为系统路径分隔符
     const systemPath = filePath.replace(/\//g, path.sep);
@@ -190,6 +200,7 @@ app.get('/api/notes/:filePath', async (req: Request, res: Response) => {
     const fullPath = path.join(WORKSPACE_DIR, systemPath);
 
     if (!fullPath.startsWith(WORKSPACE_DIR)) {
+      console.warn('Invalid file path attempt:', fullPath);
       return res.status(400).json({ error: 'Invalid file path' });
     }
 
@@ -223,7 +234,18 @@ app.get('/api/notes/:filePath', async (req: Request, res: Response) => {
 // API 路由：保存笔记内容
 app.post('/api/notes/:filePath', async (req: Request, res: Response) => {
   try {
-    const filePath = decodeURIComponent(req.params.filePath);
+    // 多重解码处理复杂的URL编码情况
+    let filePath = req.params.filePath;
+    try {
+      filePath = decodeURIComponent(filePath);
+      // 有些情况下可能需要双重解码
+      if (filePath.includes('%')) {
+        filePath = decodeURIComponent(filePath);
+      }
+    } catch (error) {
+      console.warn('Failed to decode file path:', filePath, error);
+    }
+
     const { content } = req.body;
     
         
@@ -250,8 +272,8 @@ app.post('/api/notes/:filePath', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid content format' });
     }
     
-    // 异步保存文件，允许覆盖已存在的文件
-    await fs.promises.writeFile(fullPath, JSON.stringify(content, null, 2), 'utf8');
+    // 保存文件，允许覆盖已存在的文件
+    fs.writeFileSync(fullPath, JSON.stringify(content, null, 2), 'utf8');
         
     res.json({ success: true });
   } catch (error) {
@@ -263,7 +285,17 @@ app.post('/api/notes/:filePath', async (req: Request, res: Response) => {
 // API 路由：删除笔记文件
 app.delete('/api/notes/:filePath', async (req: Request, res: Response) => {
   try {
-    const filePath = decodeURIComponent(req.params.filePath);
+    // 多重解码处理复杂的URL编码情况
+    let filePath = req.params.filePath;
+    try {
+      filePath = decodeURIComponent(filePath);
+      // 有些情况下可能需要双重解码
+      if (filePath.includes('%')) {
+        filePath = decodeURIComponent(filePath);
+      }
+    } catch (error) {
+      console.warn('Failed to decode file path:', filePath, error);
+    }
     
     // 将URL中的正斜杠转换为系统路径分隔符
     const systemPath = filePath.replace(/\//g, path.sep);
