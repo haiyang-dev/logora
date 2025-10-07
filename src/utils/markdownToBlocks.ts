@@ -850,16 +850,40 @@ export function convertJSONToBlocks(elements: MarkdownElement[]): BlockNoteBlock
  */
 export function parseMarkdownToBlocks(markdown: string): BlockNoteBlock[] {
   try {
+    // 确保输入是干净的字符串，避免拼接问题
+    const cleanMarkdown = String(markdown || '').trim();
+
+    // 如果内容为空，返回空数组而不是包含空内容的块
+    if (!cleanMarkdown) {
+      return [];
+    }
+
     // 第一步：将Markdown转换为JSON格式
-    const jsonElements = parseMarkdownToJSON(markdown);
+    const jsonElements = parseMarkdownToJSON(cleanMarkdown);
 
     // 第二步：将JSON格式转换为BlockNote块
     const blocks = convertJSONToBlocks(jsonElements);
+
+    // 确保每个块都有唯一的ID
+    const blockIds = blocks.map(block => block.id);
+    const uniqueIds = new Set(blockIds);
+    if (blockIds.length !== uniqueIds.size) {
+      console.warn('[WARNING] parseMarkdownToBlocks 检测到重复的块ID，重新生成唯一ID');
+      // 重新生成重复的块ID
+      const seenIds = new Set<string>();
+      blocks.forEach(block => {
+        if (seenIds.has(block.id)) {
+          block.id = uuidv4();
+        }
+        seenIds.add(block.id);
+      });
+    }
 
     return blocks;
   } catch (error) {
     console.error('Markdown转换为BlockNote块时发生错误:', error);
     // 返回一个包含原始文本的简单段落块
+    const safeMarkdown = String(markdown || '').substring(0, 1000); // 限制长度避免过大
     return [{
       id: uuidv4(),
       type: "paragraph",
@@ -870,7 +894,7 @@ export function parseMarkdownToBlocks(markdown: string): BlockNoteBlock[] {
       },
       content: [{
         type: "text",
-        text: markdown,
+        text: safeMarkdown,
         styles: {}
       }],
       children: []

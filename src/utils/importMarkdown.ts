@@ -541,41 +541,44 @@ export class ImportManager {
         this.progressAlert.update(`正在解析笔记 (${processedCount}/${notesToImport.length})`, `正在处理: ${fileName}`, 'info');
 
         try {
-          // 读取文件内容
-          const fileContent = await file.text();
+          // 读取文件内容 - 确保完全隔离每个文件的内容
+          const rawFileContent = await file.text();
 
-          // 验证文件内容是否正确读取
-          console.log(`[DEBUG] 解析文件 ${fileName}, 原始内容长度: ${fileContent.length}`);
-          console.log(`[DEBUG] 文件路径: ${path}`);
-          console.log(`[DEBUG] 文件名: ${file.name}`);
-          console.log(`[DEBUG] 文件大小: ${file.size} bytes`);
-          console.log(`[DEBUG] 文件类型: ${file.type}`);
-          console.log(`[DEBUG] 文件最后修改: ${new Date(file.lastModified)}`);
-          console.log(`[DEBUG] 文件内容预览: ${fileContent.substring(0, 200)}...`);
-
-          // 检查文件内容是否包含多个文件的内容拼接迹象
-          const lines = fileContent.split('\n');
-          if (lines.length > 1000) {
-            console.warn(`[WARNING] 文件 ${fileName} 有 ${lines.length} 行，可能包含多个文件的内容！`);
+          // 验证文件内容完整性，防止内容拼接
+          if (!rawFileContent || typeof rawFileContent !== 'string') {
+            console.error(`[ERROR] 文件 ${fileName} 内容为空或无效`);
+            continue;
           }
 
-          // 检查是否有明显的文件分隔符
-          const hasFileSeparators = fileContent.includes('---') && fileContent.split('---').length > 3;
-          if (hasFileSeparators) {
-            console.warn(`[WARNING] 文件 ${fileName} 包含多个文件分隔符，可能被错误拼接！`);
+          // 检测可能的文件内容拼接问题
+          const contentLines = rawFileContent.split('\n');
+          if (contentLines.length > 5000) {
+            console.warn(`[WARNING] 文件 ${fileName} 异常大 (${contentLines.length} 行)，可能包含拼接内容`);
+          }
+
+          // 检测异常的文件分隔模式
+          const separatorCount = (rawFileContent.match(/^---$/gm) || []).length;
+          if (separatorCount > 10) {
+            console.warn(`[WARNING] 文件 ${fileName} 包含异常多的分隔符 (${separatorCount} 个)，可能存在拼接问题`);
+          }
+
+          // 检测可能的多文件合并模式（连续的标题+分隔符组合）
+          const potentialFileMerges = rawFileContent.match(/(^#{1,6}\s+.+\n---\n)+/gm) || [];
+          if (potentialFileMerges.length > 2) {
+            console.warn(`[WARNING] 文件 ${fileName} 可能包含 ${potentialFileMerges.length} 个合并的文件内容`);
           }
 
           // 创建完全隔离的图片映射，确保不会混入其他文件的内容
           const isolatedUploadedImages: Record<string, string> = {};
 
-          // 添加全局上传的图片映射（只读取，不修改全局状态）
-          Object.assign(isolatedUploadedImages, uploadedImages);
+          // 深拷贝全局上传的图片映射，避免引用污染
+          Object.assign(isolatedUploadedImages, JSON.parse(JSON.stringify(uploadedImages)));
 
-          // 查找当前Markdown文件中引用的.resources/images路径的图片
+          // 查找当前Markdown文件中引用的.resources/images路径的图片 - 使用完全隔离的内容
           const localImageMatches: string[] = [];
           const imageRegex = /!\[([^\]]*)\]\((\.[^)]*\.resources\/images\/[^)]+)\)/g;
           let match;
-          while ((match = imageRegex.exec(fileContent)) !== null) {
+          while ((match = imageRegex.exec(rawFileContent)) !== null) {
             const imagePath = match[2];
             localImageMatches.push(imagePath);
           }
@@ -599,28 +602,57 @@ export class ImportManager {
             }
           }
 
-          // 替换Markdown中的图片路径为上传后的URL
+          // 替换Markdown中的图片路径为上传后的URL - 使用原始文件内容
           const currentNoteDirPath = path.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
-          let processedContent = this.replaceImagePathsV2(fileContent, isolatedUploadedImages, currentNoteDirPath);
+          const processedContent = this.replaceImagePathsV2(rawFileContent, isolatedUploadedImages, currentNoteDirPath);
+
+          // 验证处理后的内容没有被污染
+          if (!processedContent || processedContent.length === 0) {
+            console.error(`[ERROR] 文件 ${fileName} 处理后内容为空`);
+            continue;
+          }
 
           // 解析Markdown内容为BlockNote格式 - 完全隔离版本
-          console.log(`[DEBUG] 开始解析 ${fileName}, 处理后内容长度: ${processedContent.length}`);
+          console.log(`[DEBUG] 开始解析 ${fileName}, 原始内容长度: ${rawFileContent.length}, 处理后内容长度: ${processedContent.length}`);
+          console.log(`[DEBUG] 文件路径: ${path}`);
+          console.log(`[DEBUG] 文件名: ${file.name}`);
+          console.log(`[DEBUG] 文件大小: ${file.size} bytes`);
+          console.log(`[DEBUG] 文件类型: ${file.type}`);
+          console.log(`[DEBUG] 文件最后修改: ${new Date(file.lastModified)}`);
           console.log(`[DEBUG] 处理后前50字符: ${processedContent.substring(0, 50)}`);
 
           let parsedBlocks: Block[] = [];
           try {
+            // 确保为每个文件创建完全独立的解析环境
+            // 使用 JSON 深拷贝来避免任何可能的引用污染
+            const safeContent = JSON.parse(JSON.stringify(processedContent));
+
             // parseMarkdownToBlocks 每次都会创建全新的对象，不需要额外深拷贝
-            parsedBlocks = parseMarkdownToBlocks(processedContent) as Block[];
+            parsedBlocks = parseMarkdownToBlocks(safeContent) as Block[];
             console.log(`[DEBUG] parseMarkdownToBlocks 返回了 ${parsedBlocks.length} 个块`);
 
-            // 验证每个块都有唯一的ID
-            const blockIds = parsedBlocks.map(block => block.id);
-            const uniqueIds = new Set(blockIds);
-            if (blockIds.length !== uniqueIds.size) {
-              console.warn(`[WARNING] 发现重复的块ID！这可能是问题的根源。`);
-            }
+            // 验证解析结果的有效性
+            if (!Array.isArray(parsedBlocks)) {
+              console.error(`[ERROR] parseMarkdownToBlocks 返回了无效的结果:`, parsedBlocks);
+              parsedBlocks = [];
+            } else {
+              // 验证每个块都有唯一的ID
+              const blockIds = parsedBlocks.map(block => block.id);
+              const uniqueIds = new Set(blockIds);
+              if (blockIds.length !== uniqueIds.size) {
+                console.warn(`[WARNING] 文件 ${fileName} 发现重复的块ID，重新生成`);
+                // 重新生成重复的块ID
+                const seenIds = new Set<string>();
+                parsedBlocks.forEach(block => {
+                  if (seenIds.has(block.id)) {
+                    block.id = uuidv4();
+                  }
+                  seenIds.add(block.id);
+                });
+              }
 
-            console.log(`[DEBUG] 创建了 ${parsedBlocks.length} 个新块`);
+              console.log(`[DEBUG] 成功创建了 ${parsedBlocks.length} 个新块`);
+            }
 
           } catch (parseError) {
             console.warn(`解析Markdown内容失败:`, parseError);
@@ -652,18 +684,27 @@ export class ImportManager {
             }
           }
 
-          // 准备笔记数据
+          // 准备笔记数据 - 确保完全隔离每个笔记的数据
           const noteTitle = fileName.split('/').pop() || fileName;
           const noteFilePath = fileName.endsWith('.json') ? fileName : `${fileName}.json`;
 
-          console.log(`[DEBUG] 准备添加到 notesToCreate: ${noteTitle}, 内容块数: ${parsedBlocks.length}`);
-          if (parsedBlocks.length > 0) {
-            console.log(`[DEBUG] 最终内容第一个块: ${JSON.stringify(parsedBlocks[0]).substring(0, 200)}`);
+          // 深拷贝解析后的块，确保每个笔记都有独立的内容
+          const clonedParsedBlocks = JSON.parse(JSON.stringify(parsedBlocks));
+
+          console.log(`[DEBUG] 准备添加到 notesToCreate: ${noteTitle}, 内容块数: ${clonedParsedBlocks.length}`);
+          if (clonedParsedBlocks.length > 0) {
+            console.log(`[DEBUG] 最终内容第一个块: ${JSON.stringify(clonedParsedBlocks[0]).substring(0, 200)}`);
+          }
+
+          // 验证笔记数据完整性
+          if (clonedParsedBlocks.length === 0) {
+            console.warn(`[WARNING] 文件 ${fileName} 解析后没有内容块，跳过`);
+            continue;
           }
 
           notesToCreate.push({
             title: noteTitle,
-            content: parsedBlocks, // parseMarkdownToBlocks 已经创建了新对象
+            content: clonedParsedBlocks, // 使用深拷贝的块，确保完全隔离
             filePath: noteFilePath,
             isOverwrite: shouldOverwrite
           });
@@ -683,25 +724,34 @@ export class ImportManager {
         this.progressAlert.update(`正在创建笔记 (${i + 1}/${notesToCreate.length})`, `正在创建: ${note.title}`, 'info');
 
         console.log(`[DEBUG] 创建笔记: ${note.title}, 路径: ${note.filePath}`);
-        if (note.content.length > 0) {
+        if (note.content && note.content.length > 0) {
           console.log(`[DEBUG] ${note.title} 第一个块类型: ${note.content[0].type}`);
           console.log(`[DEBUG] ${note.title} 第一个块内容:`, JSON.stringify(note.content[0].content, null, 2));
+        }
+
+        // 再次深拷贝笔记内容，确保dispatch时的内容完全独立
+        const noteContentForDispatch = JSON.parse(JSON.stringify(note.content));
+
+        // 验证笔记内容的完整性
+        if (!noteContentForDispatch || !Array.isArray(noteContentForDispatch) || noteContentForDispatch.length === 0) {
+          console.error(`[ERROR] 笔记 ${note.title} 的内容无效，跳过创建`);
+          continue;
         }
 
         dispatch({
           type: 'ADD_NOTE_WITH_FILE',
           payload: {
             title: note.title,
-            content: note.content,
+            content: noteContentForDispatch, // 使用完全独立的内容副本
             isFolder: false,
             filePath: note.filePath
           }
         });
 
-        // 每创建5个笔记后稍作停顿，避免服务器压力过大
-        if ((i + 1) % 5 === 0) {
+        // 每创建3个笔记后稍作停顿，避免文件系统竞争和状态混乱
+        if ((i + 1) % 3 === 0) {
           console.log(`[DEBUG] 已创建 ${i + 1} 个笔记，稍作停顿...`);
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
       }
       
