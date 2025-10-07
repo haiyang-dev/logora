@@ -95,7 +95,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       // 只有非文件夹笔记才创建文件
       if (!action.payload.isFolder && filePath) {
         // 异步创建文件（不等待结果）
-        FileSystemManager.createNote(filePath, action.payload.title, [
+        FileSystemManager.createNote(filePath, [
           {
             type: 'heading',
             props: { level: 1 },
@@ -283,8 +283,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       if (!action.payload.isFolder && action.payload.filePath) {
         // 异步创建文件（不等待结果）
         FileSystemManager.createNote(
-          action.payload.filePath, 
-          action.payload.title, 
+          action.payload.filePath,
           action.payload.content || [
             {
               type: 'heading',
@@ -321,9 +320,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'UPDATE_NOTE': {
       const note = state.notes[action.payload.id];
       if (!note) return state;
-      
-      // 检查是否是标题更改
-      const isTitleChange = action.payload.updates.title !== undefined;
       
       // 检查内容是否真正发生变化
       let hasContentChanged = false;

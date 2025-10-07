@@ -710,8 +710,8 @@ export function convertJSONToBlocks(elements: MarkdownElement[]): BlockNoteBlock
           content: {
             type: 'tableContent',
             columnWidths: (element.rows as string[][])[0] ? (element.rows as string[][])[0].map(() => null) : [],
-            rows: (element.rows as string[][]).map((row: string[], rowIndex: number) => ({
-              cells: row.map((cell: string, cellIndex: number) => ({
+            rows: (element.rows as string[][]).map((row: string[]) => ({
+              cells: row.map((cell: string) => ({
                 type: 'tableCell',
                 content: parseLinks(cell),
                 props: {

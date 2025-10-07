@@ -6,14 +6,11 @@ export class FileSystemManager {
   // 获取所有笔记文件列表
   static async getAllNotes(): Promise<any[]> {
     try {
-      console.log('正在调用 API:', `${this.API_BASE}/notes`);
       const response = await fetch(`${this.API_BASE}/notes`);
-      console.log('API 响应状态:', response.status, response.statusText);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
-      console.log('获取到的数据:', data);
       return data;
     } catch (error) {
       console.error('Failed to fetch notes:', error);
@@ -87,7 +84,7 @@ export class FileSystemManager {
   }
 
   // 创建新笔记文件
-  static async createNote(filePath: string, title: string, content: any[] = []): Promise<void> {
+  static async createNote(filePath: string, content: any[] = []): Promise<void> {
     try {
       // 确保文件路径以 .json 结尾
       const noteFilePath = filePath.endsWith('.json') ? filePath : `${filePath}.json`;
@@ -194,7 +191,6 @@ export class FileSystemManager {
   // 重命名笔记文件
   static async renameNote(oldFilePath: string, newFilePath: string): Promise<void> {
     try {
-      console.log('FileSystemManager.renameNote called with:', { oldFilePath, newFilePath });
       const response = await fetch(`${this.API_BASE}/notes/rename`, {
         method: 'POST',
         headers: {
@@ -202,18 +198,15 @@ export class FileSystemManager {
         },
         body: JSON.stringify({ oldPath: oldFilePath, newPath: newFilePath }),
       });
-      
-      console.log('API response status:', response.status);
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      console.log('API response data:', data);
       if (!data.success) {
         throw new Error('Failed to rename note');
       }
-      console.log('FileSystemManager.renameNote completed successfully');
     } catch (error) {
       console.error(`Failed to rename note from ${oldFilePath} to ${newFilePath}:`, error);
       throw error;

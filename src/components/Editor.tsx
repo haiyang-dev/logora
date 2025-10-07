@@ -1,11 +1,10 @@
-import React, { useEffect, useCallback, useState, useRef, useMemo } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import { 
   type Block 
 } from '@blocknote/core';
 import { BlockNoteView } from '@blocknote/mantine';
 import { useCreateBlockNote } from '@blocknote/react';
 import { unifiedSchema } from '../shared/schema';
-import { createHighlighter } from '../shiki.bundle';
 import { useApp } from '../context/AppContext';
 import { useEditor } from '../context/EditorContext';
 import { FileSystemManager } from '../utils/fileSystem';
@@ -66,38 +65,14 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
   
   // 启用自动保存功能
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
-  
-  // 定义图片上传函数
-  const uploadFile = useCallback(async (file: File): Promise<string> => {
-    try {
-      // 使用我们自定义的图片上传管理器
-      const imageUrl = await ImageUploadManager.uploadImage(file, ''); // 移除不必要的参数
 
-      // 验证图片URL是否可访问
-      try {
-        const response = await fetch(imageUrl, { method: 'HEAD' });
-        if (!response.ok) {
-          console.warn('图片URL可能无法访问:', imageUrl, response.status);
-        }
-      } catch (verifyError) {
-        console.warn('图片URL验证失败:', imageUrl, verifyError);
-      }
-
-      // 返回URL字符串
-      return imageUrl;
-    } catch (error) {
-      console.error('图片上传失败:', error);
-      throw error;
-    }
-  }, []);
-  
   // 使用 useCreateBlockNote 创建编辑器实例，传递 initialContent
   const editor = useCreateBlockNote({
     schema: unifiedSchema,
     uploadFile: async (file: File): Promise<string> => {
       try {
         // 使用我们自定义的图片上传管理器
-        const imageUrl = await ImageUploadManager.uploadImage(file, ''); // 移除不必要的参数
+        const imageUrl = await ImageUploadManager.uploadImage(file);
         return imageUrl;
       } catch (error) {
         console.error('图片上传失败:', error);

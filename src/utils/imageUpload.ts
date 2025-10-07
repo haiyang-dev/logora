@@ -4,12 +4,11 @@ export class ImageUploadManager {
   private static readonly API_BASE = 'http://localhost:3001';
 
   // 上传图片到服务器
-  static async uploadImage(file: File, notePath: string): Promise<string> {
+  static async uploadImage(file: File): Promise<string> {
     try {
       // 创建 FormData 对象
       const formData = new FormData();
       formData.append('image', file);
-      // 移除notePath字段，因为服务端不使用它
 
       // 发送上传请求
       const response = await fetch(`${this.API_BASE}/api/upload-image`, {
@@ -25,8 +24,7 @@ export class ImageUploadManager {
 
       // 正确处理服务器响应格式 - 返回url字段
       const imageUrl = data.success ? data.url : (data.url || data);
-      
-      console.log('图片上传成功，返回URL:', imageUrl);
+
       return imageUrl;
     } catch (error) {
       console.error('图片上传失败:', error);

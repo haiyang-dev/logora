@@ -302,8 +302,7 @@ ${markdownContent}`;
           const writable = await fileHandle.createWritable();
           await writable.write(blob);
           await writable.close();
-          
-          console.log(`成功导出图片: ${fileName}`);
+
           processedImages++;
         } catch (error) {
           console.error(`导出图片失败 ${imageUrl}:`, error);

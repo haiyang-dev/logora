@@ -50,8 +50,7 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
 
   // 构建树形结构 - 修复父子关系匹配逻辑
   const tree = useMemo(() => {
-    // console.log('构建树形结构，notes:', state.notes);
-    const buildTree = (parentId: string | null = null): TreeNode[] => {
+        const buildTree = (parentId: string | null = null): TreeNode[] => {
       // 修复：正确过滤根节点（parentId为null或undefined的节点）
       let notes = Object.values(state.notes).filter(note => {
         // 对于根节点，parentId应该是null或undefined
@@ -71,8 +70,7 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
         return a.title.localeCompare(b.title);
       });
       
-      // console.log(`构建parentId=${parentId}的节点，找到${notes.length}个笔记`);
-      return notes.map(note => ({
+            return notes.map(note => ({
         id: note.id,
         title: note.title,
         isFolder: note.isFolder,
@@ -80,8 +78,7 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
       }));
     };
     const result = buildTree(null);
-    // console.log('构建完成的树:', result);
-    return result;
+        return result;
   }, [state.notes]); // 只依赖state.notes
 
   // 将 TreeNode 转换为 NoteTreeItem（添加 level 信息）
@@ -102,32 +99,10 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
       });
     };
     const items = convertToTreeItem(tree);
-    // console.log('生成的treeItems:', items);
-    return items;
+        return items;
   }, [tree, state.notes, state.expandedFolders]); // 依赖tree, state.notes, state.expandedFolders
 
-  // 处理创建新项目
-  const handleCreateNote = useCallback((type: 'note' | 'folder', parentId?: string) => {
-    if (type === 'folder') {
-      dispatch({
-        type: 'ADD_FOLDER',
-        payload: {
-          title: '新文件夹',
-          parentId,
-        },
-      });
-    } else {
-      dispatch({
-        type: 'ADD_NOTE',
-        payload: {
-          title: '未命名笔记',
-          isFolder: false,
-          parentId,
-        },
-      });
-    }
-  }, [dispatch]);
-
+  
   // 处理选择笔记 - 优化性能
   const handleSelectNote = useCallback((noteId: string, e: React.MouseEvent) => {
     try {
@@ -357,7 +332,7 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
     try {
       if (editor) {
         const existingNotes = Object.values(state.notes || {});
-        const lastImportedNotePath = await ImportManager.importMarkdownNotes(dispatch, editor, existingNotes);
+        const lastImportedNotePath = await ImportManager.importMarkdownNotes(dispatch, existingNotes);
 
         // 导入完成后，强制刷新状态
         dispatch({ type: 'FORCE_UPDATE' });
@@ -377,12 +352,6 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
       alert('导入Markdown笔记失败: ' + (error as Error).message);
     }
   }, [editor, state.notes, dispatch, handleImportComplete]);
-
-  // 处理导出功能
-  const handleExportNote = useCallback(async () => {
-    // 根据需求，移除单个笔记导出功能
-    alert('单个笔记导出功能已移除。请使用"导出所有笔记"功能将所有笔记导出到指定文件夹。');
-  }, []);
 
   // 渲染树形项目 - 优化性能
   const renderTreeItem = useCallback((item: NoteTreeItem): React.ReactElement => {
@@ -1492,7 +1461,7 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
       )}
     </div>
   );
-}, (prevProps, nextProps) => {
+}, () => {
   // 总是返回false以确保组件能够重新渲染
   return false;
 });

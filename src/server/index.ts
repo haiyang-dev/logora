@@ -4,7 +4,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import searchEngine from './search.js';
 import multer from 'multer';
-import { randomUUID } from 'crypto';
 import type { Request, Response } from 'express';
 import { createHash } from 'crypto';
 

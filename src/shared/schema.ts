@@ -2,10 +2,9 @@
  * 公共的 BlockNote Schema 配置
  * 前后端共享，确保一致性
  */
-import { 
-  BlockNoteSchema, 
+import {
+  BlockNoteSchema,
   createCodeBlockSpec,
-  defaultBlockSpecs,
 } from '@blocknote/core';
 
 // 导入项目中配置好的Shiki bundle
