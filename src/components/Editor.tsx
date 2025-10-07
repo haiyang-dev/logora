@@ -13,63 +13,188 @@ import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
 import './Editor.css';
 
-// 验证和清理块的函数
-function sanitizeBlocks(blocks: Block[]): Block[] {
-  return blocks.filter(block => {
-    // 确保块有必要的属性
-    if (!block.id || !block.type) {
-      console.warn('跳过无效的块:', block);
+// BlockNote支持的块类型
+const SUPPORTED_BLOCK_TYPES = [
+  'paragraph',
+  'heading',
+  'codeBlock',
+  'bulletListItem',
+  'numberedListItem',
+  'blockquote',
+  'image',
+  'horizontalRule',
+  'table'
+];
+
+// 创建安全块的函数
+function createSafeBlock(type: string, content: any = [], props: any = {}): any {
+  // 检查类型是否支持，如果不支持则使用段落
+  const safeType = SUPPORTED_BLOCK_TYPES.includes(type) ? type : 'paragraph';
+
+  const baseBlock = {
+    id: `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    type: safeType,
+    props: { ...props },
+    content: Array.isArray(content) ? content : [],
+    children: []
+  };
+
+  // 为不同类型的块设置默认属性
+  switch (safeType) {
+    case 'paragraph':
+      return {
+        ...baseBlock,
+        props: {
+          backgroundColor: props.backgroundColor || 'default',
+          textColor: props.textColor || 'default',
+          textAlignment: props.textAlignment || 'left'
+        }
+      };
+
+    case 'heading':
+      return {
+        ...baseBlock,
+        props: {
+          backgroundColor: props.backgroundColor || 'default',
+          textColor: props.textColor || 'default',
+          textAlignment: props.textAlignment || 'left',
+          level: Math.min(Math.max(props.level || 1, 1), 6) // 确保级别在1-6之间
+        }
+      };
+
+    case 'codeBlock':
+      return {
+        ...baseBlock,
+        props: {
+          language: props.language || 'plaintext'
+        }
+      };
+
+    case 'bulletListItem':
+    case 'numberedListItem':
+    case 'blockquote':
+      return {
+        ...baseBlock,
+        props: {
+          backgroundColor: props.backgroundColor || 'default',
+          textColor: props.textColor || 'default',
+          textAlignment: props.textAlignment || 'left'
+        }
+      };
+
+    case 'image':
+      return {
+        ...baseBlock,
+        props: {
+          url: props.url || '',
+          caption: props.caption || '',
+          aspectRatio: typeof props.aspectRatio === 'number' ? props.aspectRatio : 16/9
+        },
+        content: []
+      };
+
+    case 'horizontalRule':
+      return {
+        ...baseBlock,
+        props: {},
+        content: []
+      };
+
+    case 'table':
+      return {
+        ...baseBlock,
+        props: {
+          textColor: props.textColor || 'default'
+        },
+        content: props.content && props.content.type === 'tableContent' ? props.content : {
+          type: 'tableContent',
+          columnWidths: [],
+          rows: []
+        }
+      };
+
+    default:
+      // 作为最后的备用，返回段落块
+      return {
+        ...baseBlock,
+        type: 'paragraph',
+        props: {
+          backgroundColor: 'default',
+          textColor: 'default',
+          textAlignment: 'left'
+        }
+      };
+  }
+}
+
+// 验证和清理内容
+function sanitizeContent(content: any): any[] {
+  if (!Array.isArray(content)) {
+    return [];
+  }
+
+  return content.filter(item => {
+    if (!item || typeof item !== 'object') {
       return false;
     }
 
-    // 确保有children属性
-    if (!Array.isArray(block.children)) {
-      block.children = [];
+    // 验证文本内容
+    if (item.type === 'text') {
+      return typeof item.text === 'string' && typeof item.styles === 'object';
     }
 
-    // 验证特定类型的块
-    switch (block.type) {
-      case 'table':
-        // 表格块需要特殊验证
-        if (!block.content || !block.content.rows || !Array.isArray(block.content.rows)) {
-          console.warn('跳过无效的表格块:', block);
-          return false;
-        }
-        break;
-      case 'paragraph':
-      case 'heading':
-      case 'codeBlock':
-      case 'bulletListItem':
-      case 'numberedListItem':
-      case 'blockquote':
-        // 这些块应该有content数组
-        if (!Array.isArray(block.content)) {
-          block.content = [];
-        }
-        break;
-      case 'image':
-      case 'horizontalRule':
-        // 这些块可以没有content或content为空数组
-        if (!block.content) {
-          block.content = [];
-        }
-        break;
+    // 验证链接内容
+    if (item.type === 'link') {
+      return typeof item.href === 'string' && typeof item.content === 'string';
     }
 
-    // 确保有props对象
-    if (!block.props || typeof block.props !== 'object') {
-      block.props = {};
-    }
-
-    // 确保所有块都有必要的默认props
-    if (block.type !== 'image' && block.type !== 'horizontalRule' && block.type !== 'codeBlock') {
-      if (!block.props.backgroundColor) block.props.backgroundColor = 'default';
-      if (!block.props.textColor) block.props.textColor = 'default';
-      if (!block.props.textAlignment) block.props.textAlignment = 'left';
-    }
-
+    // 其他类型的内容，暂时保留
     return true;
   });
+}
+
+// 验证和清理块的函数
+function sanitizeBlocks(blocks: Block[]): Block[] {
+  const safeBlocks: Block[] = [];
+
+  for (const block of blocks) {
+    try {
+      // 跳过明显无效的块
+      if (!block || typeof block !== 'object' || !block.type) {
+        console.warn('跳过无效的块:', block);
+        continue;
+      }
+
+      // 验证和清理内容
+      const sanitizedContent = sanitizeContent(block.content);
+
+      // 使用安全的块创建函数重新创建块
+      const safeBlock = createSafeBlock(block.type, sanitizedContent, block.props);
+
+      // 保持原始ID（如果存在且有效）
+      if (block.id && typeof block.id === 'string') {
+        safeBlock.id = block.id;
+      }
+
+      // 递归处理children
+      if (Array.isArray(block.children) && block.children.length > 0) {
+        safeBlock.children = sanitizeBlocks(block.children);
+      }
+
+      safeBlocks.push(safeBlock as Block);
+    } catch (error) {
+      console.error('处理块时发生错误:', error, block);
+      // 创建一个默认的段落块作为备用
+      const fallbackBlock = createSafeBlock('paragraph', [{
+        type: 'text',
+        text: `导入错误: 无法显示此内容`,
+        styles: {}
+      }]);
+      safeBlocks.push(fallbackBlock as Block);
+    }
+  }
+
+  return safeBlocks;
 }
 
 interface EditorProps {
@@ -198,10 +323,7 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
       ? sanitizeBlocks(initialContent) // 清理和验证块
       : [];
 
-    // 调试日志
-    console.log('尝试加载的内容:', validInitialContent);
-    console.log('编辑器当前文档:', editor.document);
-
+    
     // 只有当编辑器内容为空时才替换内容，避免在已有内容时覆盖
     if (validInitialContent.length > 0) {
       // 设置加载标志，防止触发保存
@@ -211,7 +333,6 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
         const hasExistingContent = editor.document && editor.document.length > 0;
 
         if (hasExistingContent) {
-          console.log('编辑器已有内容，使用insertBlocks添加新内容');
           // 获取最后一个块作为参考点
           const lastBlock = editor.document[editor.document.length - 1];
 
@@ -224,7 +345,6 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
             }
           }
         } else {
-          console.log('编辑器为空，使用replaceBlocks设置内容');
           editor.replaceBlocks(editor.document, validInitialContent);
         }
       } catch (error) {
@@ -232,7 +352,6 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
         // 备用方案：尝试使用transact
         try {
           editor.transact((tr) => {
-            console.log('尝试使用transaction设置内容');
             // 这里可以添加更底层的操作
           });
         } catch (transactError) {
