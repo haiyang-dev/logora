@@ -3,6 +3,7 @@ import { AppProvider, useApp } from './context/AppContext';
 import { EditorProvider, useEditor } from './context/EditorContext';
 import { Sidebar } from './components/Sidebar';
 import { Editor } from './components/Editor';
+import { ResizableSplitter } from './components/ResizableSplitter';
 import { StorageManager } from './utils/storage';
 import { FileSystemManager } from './utils/fileSystem';
 
@@ -37,17 +38,21 @@ function AppContent() {
   return (
     <div style={{height: '100vh', background: '#f9fafb', display: 'flex', overflow: 'hidden'}}>
       {/* 主内容区域 - 无顶部导航栏 */}
-      <div style={{display: 'flex', flex: '1'}}>
+      <ResizableSplitter
+        defaultFirstWidth={280}
+        minWidth={180}
+        maxWidth={500}
+      >
         {/* 侧边栏 */}
-        <div style={{width: '320px', background: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column'}}>
+        <div style={{background: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', height: '100%'}}>
           <Sidebar className="" editor={editor} />
         </div>
-        
+
         {/* 编辑器区域 */}
-        <div style={{flex: '1', background: 'white'}}>
+        <div style={{background: 'white', height: '100%'}}>
           <Editor className="" />
         </div>
-      </div>
+      </ResizableSplitter>
     </div>
   );
 }
