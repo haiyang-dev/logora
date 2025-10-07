@@ -542,11 +542,28 @@ export class ImportManager {
 
         try {
           // 读取文件内容
-          let content = await file.text();
+          const fileContent = await file.text();
 
-          console.log(`[DEBUG] 解析文件 ${fileName}, 原始内容长度: ${content.length}`);
+          // 验证文件内容是否正确读取
+          console.log(`[DEBUG] 解析文件 ${fileName}, 原始内容长度: ${fileContent.length}`);
           console.log(`[DEBUG] 文件路径: ${path}`);
-          console.log(`[DEBUG] 文件内容预览: ${content.substring(0, 200)}...`);
+          console.log(`[DEBUG] 文件名: ${file.name}`);
+          console.log(`[DEBUG] 文件大小: ${file.size} bytes`);
+          console.log(`[DEBUG] 文件类型: ${file.type}`);
+          console.log(`[DEBUG] 文件最后修改: ${new Date(file.lastModified)}`);
+          console.log(`[DEBUG] 文件内容预览: ${fileContent.substring(0, 200)}...`);
+
+          // 检查文件内容是否包含多个文件的内容拼接迹象
+          const lines = fileContent.split('\n');
+          if (lines.length > 1000) {
+            console.warn(`[WARNING] 文件 ${fileName} 有 ${lines.length} 行，可能包含多个文件的内容！`);
+          }
+
+          // 检查是否有明显的文件分隔符
+          const hasFileSeparators = fileContent.includes('---') && fileContent.split('---').length > 3;
+          if (hasFileSeparators) {
+            console.warn(`[WARNING] 文件 ${fileName} 包含多个文件分隔符，可能被错误拼接！`);
+          }
 
           // 创建完全隔离的图片映射，确保不会混入其他文件的内容
           const isolatedUploadedImages: Record<string, string> = {};
@@ -558,7 +575,7 @@ export class ImportManager {
           const localImageMatches: string[] = [];
           const imageRegex = /!\[([^\]]*)\]\((\.[^)]*\.resources\/images\/[^)]+)\)/g;
           let match;
-          while ((match = imageRegex.exec(content)) !== null) {
+          while ((match = imageRegex.exec(fileContent)) !== null) {
             const imagePath = match[2];
             localImageMatches.push(imagePath);
           }
@@ -584,40 +601,30 @@ export class ImportManager {
 
           // 替换Markdown中的图片路径为上传后的URL
           const currentNoteDirPath = path.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
-          content = this.replaceImagePathsV2(content, isolatedUploadedImages, currentNoteDirPath);
+          let processedContent = this.replaceImagePathsV2(fileContent, isolatedUploadedImages, currentNoteDirPath);
 
           // 解析Markdown内容为BlockNote格式 - 完全隔离版本
-          console.log(`[DEBUG] 开始解析 ${fileName}, 原始内容长度: ${content.length}`);
-          console.log(`[DEBUG] 前50字符: ${content.substring(0, 50)}`);
+          console.log(`[DEBUG] 开始解析 ${fileName}, 处理后内容长度: ${processedContent.length}`);
+          console.log(`[DEBUG] 处理后前50字符: ${processedContent.substring(0, 50)}`);
 
           let parsedBlocks: Block[] = [];
           try {
-            const rawBlocks = parseMarkdownToBlocks(content) as Block[];
-            console.log(`[DEBUG] parseMarkdownToBlocks 返回了 ${rawBlocks.length} 个块`);
+            // parseMarkdownToBlocks 每次都会创建全新的对象，不需要额外深拷贝
+            parsedBlocks = parseMarkdownToBlocks(processedContent) as Block[];
+            console.log(`[DEBUG] parseMarkdownToBlocks 返回了 ${parsedBlocks.length} 个块`);
 
-            // 创建完全新的对象，深拷贝所有内容，强制生成新ID
-            parsedBlocks = rawBlocks.map((block, blockIndex) => {
-              const newBlock: any = {
-                id: uuidv4(), // 强制生成新的ID
-                type: block.type,
-                props: JSON.parse(JSON.stringify(block.props || {})),
-                content: JSON.parse(JSON.stringify(block.content || [])),
-                children: JSON.parse(JSON.stringify(block.children || []))
-              };
+            // 验证每个块都有唯一的ID
+            const blockIds = parsedBlocks.map(block => block.id);
+            const uniqueIds = new Set(blockIds);
+            if (blockIds.length !== uniqueIds.size) {
+              console.warn(`[WARNING] 发现重复的块ID！这可能是问题的根源。`);
+            }
 
-              console.log(`[DEBUG] 块 ${blockIndex}: type=${newBlock.type}, id=${newBlock.id}`);
-              if (newBlock.content && newBlock.content.length > 0) {
-                console.log(`[DEBUG]   第一个内容: ${JSON.stringify(newBlock.content[0]).substring(0, 100)}`);
-              }
-
-              return newBlock;
-            });
-
-            console.log(`[DEBUG] 创建了 ${parsedBlocks.length} 个隔离的块`);
+            console.log(`[DEBUG] 创建了 ${parsedBlocks.length} 个新块`);
 
           } catch (parseError) {
             console.warn(`解析Markdown内容失败:`, parseError);
-            console.log(`[DEBUG] 解析失败，使用原始内容作为段落块: ${content.substring(0, 100)}`);
+            console.log(`[DEBUG] 解析失败，使用原始内容作为段落块: ${processedContent.substring(0, 100)}`);
 
             // 如果解析失败，创建一个包含原始Markdown内容的段落块
             parsedBlocks = [{
@@ -630,7 +637,7 @@ export class ImportManager {
               },
               content: [{
                 type: "text",
-                text: content.substring(0, 1000), // 限制长度避免过大
+                text: processedContent.substring(0, 1000), // 限制长度避免过大
                 styles: {}
               }],
               children: []
@@ -645,20 +652,18 @@ export class ImportManager {
             }
           }
 
-          // 准备笔记数据 - 再次深拷贝确保完全隔离
+          // 准备笔记数据
           const noteTitle = fileName.split('/').pop() || fileName;
           const noteFilePath = fileName.endsWith('.json') ? fileName : `${fileName}.json`;
 
-          const finalContent = JSON.parse(JSON.stringify(parsedBlocks));
-
-          console.log(`[DEBUG] 准备添加到 notesToCreate: ${noteTitle}, 内容块数: ${finalContent.length}`);
-          if (finalContent.length > 0) {
-            console.log(`[DEBUG] 最终内容第一个块: ${JSON.stringify(finalContent[0]).substring(0, 200)}`);
+          console.log(`[DEBUG] 准备添加到 notesToCreate: ${noteTitle}, 内容块数: ${parsedBlocks.length}`);
+          if (parsedBlocks.length > 0) {
+            console.log(`[DEBUG] 最终内容第一个块: ${JSON.stringify(parsedBlocks[0]).substring(0, 200)}`);
           }
 
           notesToCreate.push({
             title: noteTitle,
-            content: finalContent, // 已经深拷贝
+            content: parsedBlocks, // parseMarkdownToBlocks 已经创建了新对象
             filePath: noteFilePath,
             isOverwrite: shouldOverwrite
           });
