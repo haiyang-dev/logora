@@ -376,7 +376,9 @@ function createImageElement(alt: string, url: string): MarkdownElement {
  * @returns 是否为表格行
  */
 function isTableRow(line: string): boolean {
-  return line.trim().startsWith('|') && line.trim().endsWith('|');
+  const trimmed = line.trim();
+  // 更宽松的检测：包含管道符号即可
+  return trimmed.includes('|') && trimmed.length > 1;
 }
 
 /**
@@ -385,8 +387,11 @@ function isTableRow(line: string): boolean {
  * @returns 是否为表格分隔行
  */
 function isTableSeparator(line: string): boolean {
-  return line.trim().startsWith('|') && line.trim().endsWith('|') && 
-         line.trim().includes('-') && line.trim().replace(/\s*\|\s*/g, '').includes('-');
+  const trimmed = line.trim();
+  // 更宽松的分隔符检测：包含管道符号和破折号
+  return trimmed.includes('|') &&
+         trimmed.includes('-') &&
+         /[-\s]{2,}/.test(trimmed); // 至少包含2个破折号或空格的组合
 }
 
 /**
@@ -398,11 +403,52 @@ function createTableElement(lines: string[]): MarkdownElement {
   const rows: string[][] = [];
 
   for (const line of lines) {
-    if (isTableRow(line) && !isTableSeparator(line)) {
-      // 解析表格行，移除首尾的|并按|分割
-      const cells = line.trim().slice(1, -1).split('|').map(cell => cell.trim());
-      rows.push(cells);
+    const trimmedLine = line.trim();
+
+    // 跳过空行
+    if (!trimmedLine) {
+      continue;
     }
+
+    // 更宽松的表格行检测
+    if (isTableRow(trimmedLine)) {
+      // 如果是分隔符行，跳过
+      if (isTableSeparator(trimmedLine)) {
+        continue;
+      }
+
+      try {
+        // 处理不完整的表格行
+        let processedLine = trimmedLine;
+
+        // 确保行以|开头和结尾
+        if (!processedLine.startsWith('|')) {
+          processedLine = '|' + processedLine;
+        }
+        if (!processedLine.endsWith('|')) {
+          processedLine = processedLine + '|';
+        }
+
+        // 解析表格行，移除首尾的|并按|分割
+        const cells = processedLine.slice(1, -1).split('|').map(cell => cell.trim());
+
+        // 只添加非空行或有有效内容的行
+        if (cells.length > 0 && (cells.some(cell => cell.length > 0) || rows.length > 0)) {
+          rows.push(cells);
+        }
+      } catch (error) {
+        console.warn('解析表格行时出错:', trimmedLine, error);
+        continue;
+      }
+    }
+  }
+
+  // 如果没有有效行，返回空表格
+  if (rows.length === 0) {
+    return {
+      type: 'table',
+      rows: [['', '']] // 默认创建一个2列的空表格
+    };
   }
 
   // 如果只有一行，可能是标题行，添加空的数据行
@@ -718,11 +764,20 @@ export function convertJSONToBlocks(elements: MarkdownElement[]): BlockNoteBlock
           break;
         }
 
+        // 确保所有行都有相同数量的列
+        const maxCols = Math.max(...tableRows.map(row => row.length));
+        const normalizedRows = tableRows.map(row => {
+          while (row.length < maxCols) {
+            row.push('');
+          }
+          return row;
+        });
+
         // 创建表格内容
         const tableContent = {
           type: 'tableContent' as const,
-          columnWidths: tableRows[0] ? tableRows[0].map(() => null) : [],
-          rows: tableRows.map((row: string[]) => ({
+          columnWidths: maxCols > 0 ? Array(maxCols).fill(null) : [],
+          rows: normalizedRows.map((row: string[]) => ({
             cells: row.map((cell: string) => {
               // 解析单元格内容，如果内容为空则提供默认内容
               const cellContent = parseLinks(cell);
@@ -745,15 +800,41 @@ export function convertJSONToBlocks(elements: MarkdownElement[]): BlockNoteBlock
           }))
         };
 
-        blocks.push({
-          id: uuidv4(),
-          type: 'table',
-          props: {
-            textColor: 'default'
-          },
-          content: tableContent,
-          children: []
-        });
+        // 验证创建的表格内容
+        const isValidTable = tableContent.rows.length > 0 &&
+                           tableContent.rows.every(row =>
+                             row.cells.length > 0 &&
+                             row.cells.every(cell =>
+                               cell.type === 'tableCell' &&
+                               Array.isArray(cell.content)
+                             )
+                           );
+
+        if (isValidTable) {
+          blocks.push({
+            id: uuidv4(),
+            type: 'table',
+            props: {
+              textColor: 'default'
+            },
+            content: tableContent,
+            children: []
+          });
+        } else {
+          console.warn('跳过无效的表格块，转换为段落');
+          // 将表格转换为段落作为备用
+          blocks.push({
+            id: uuidv4(),
+            type: 'paragraph',
+            props: {
+              backgroundColor: 'default',
+              textColor: 'default',
+              textAlignment: 'left'
+            },
+            content: parseLinks(element.rows.map(row => row.join(' | ')).join('\n')),
+            children: []
+          });
+        }
         break;
       }
     }

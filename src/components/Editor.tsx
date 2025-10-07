@@ -101,16 +101,48 @@ function createSafeBlock(type: string, content: any = [], props: any = {}): any 
       };
 
     case 'table':
+      // 验证并清理表格内容
+      let safeTableContent = {
+        type: 'tableContent',
+        columnWidths: [],
+        rows: []
+      };
+
+      if (props.content && props.content.type === 'tableContent') {
+        safeTableContent = {
+          type: 'tableContent',
+          columnWidths: Array.isArray(props.content.columnWidths) ? props.content.columnWidths : [],
+          rows: []
+        };
+
+        // 验证和清理表格行
+        if (Array.isArray(props.content.rows)) {
+          safeTableContent.rows = props.content.rows
+            .filter(row => row && Array.isArray(row.cells))
+            .map(row => ({
+              cells: row.cells
+                .filter(cell => cell && cell.type === 'tableCell')
+                .map(cell => ({
+                  type: 'tableCell',
+                  content: Array.isArray(cell.content) ? cell.content : [],
+                  props: {
+                    colspan: Math.max(1, parseInt(cell.props?.colspan) || 1),
+                    rowspan: Math.max(1, parseInt(cell.props?.rowspan) || 1),
+                    backgroundColor: cell.props?.backgroundColor || 'default',
+                    textColor: cell.props?.textColor || 'default',
+                    textAlignment: cell.props?.textAlignment || 'left'
+                  }
+                }))
+            }));
+        }
+      }
+
       return {
         ...baseBlock,
         props: {
           textColor: props.textColor || 'default'
         },
-        content: props.content && props.content.type === 'tableContent' ? props.content : {
-          type: 'tableContent',
-          columnWidths: [],
-          rows: []
-        }
+        content: safeTableContent
       };
 
     default:
@@ -167,6 +199,15 @@ function sanitizeBlocks(blocks: Block[]): Block[] {
 
       // 验证和清理内容
       const sanitizedContent = sanitizeContent(block.content);
+
+      // 特殊处理表格块
+      if (block.type === 'table') {
+        // 对表格进行额外的验证
+        if (!block.content || !block.content.rows || !Array.isArray(block.content.rows) || block.content.rows.length === 0) {
+          console.warn('跳过无效的表格块:', block);
+          continue;
+        }
+      }
 
       // 使用安全的块创建函数重新创建块
       const safeBlock = createSafeBlock(block.type, sanitizedContent, block.props);
