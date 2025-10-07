@@ -1,1 +1,0 @@
-https://github.com/awsdocs/aws-doc-sdk-examples

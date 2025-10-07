@@ -2,7 +2,7 @@
 export interface Note {
   id: string;
   title: string;
-  content: any; // BlockNote 的内容格式
+  content: unknown[]; // BlockNote 的内容格式
   parentId?: string;
   children?: Note[];
   createdAt: Date;

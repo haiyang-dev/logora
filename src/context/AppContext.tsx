@@ -9,14 +9,14 @@ type AppAction =
   | { type: 'SELECT_NOTE'; payload: string }
   | { type: 'ADD_NOTE'; payload: { parentId?: string; title: string; isFolder: boolean } }
   | { type: 'ADD_FOLDER'; payload: { parentId?: string; title: string } }
-  | { type: 'ADD_NOTE_WITH_FILE'; payload: { parentId?: string; title: string; isFolder: boolean; filePath: string; content?: any } }
+  | { type: 'ADD_NOTE_WITH_FILE'; payload: { parentId?: string; title: string; isFolder: boolean; filePath: string; content?: unknown[] } }
   | { type: 'UPDATE_NOTE'; payload: { id: string; updates: Partial<Note> } }
   | { type: 'DELETE_NOTE'; payload: string }
   | { type: 'TOGGLE_FOLDER'; payload: string }
   | { type: 'EXPAND_FOLDERS'; payload: string[] }
   | { type: 'SELECT_NOTE_AND_EXPAND_PATH'; payload: string }
   | { type: 'LOAD_NOTES'; payload: Record<string, Note> }
-  | { type: 'LOAD_FILE_SYSTEM_NOTES'; payload: any[] }
+  | { type: 'LOAD_FILE_SYSTEM_NOTES'; payload: Note[] }
   | { type: 'SET_SEARCH_RESULTS'; payload: SearchResult[] }
   | { type: 'CLEAR_SEARCH_RESULTS' }
   | { type: 'RENAME_NOTE'; payload: { id: string; newTitle: string } }
@@ -358,7 +358,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       
       const oldFilePath = note.filePath;
       // 获取父级路径，使用通用的路径分隔符处理方法
-      const pathParts = oldFilePath.split(/[\/\\]/); // 同时处理正斜杠和反斜杠
+      const pathParts = oldFilePath.split(/[/\\]/); // 同时处理正斜杠和反斜杠
       pathParts.pop(); // 移除旧文件名
       const parentPath = pathParts.join('/'); // 使用正斜杠作为统一格式
       
@@ -370,7 +370,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         // 只有当文件名真正改变时才重命名
         if (oldFilePath !== newFilePath) {
           // 异步重命名文件夹
-          FileSystemManager.renameFolder(oldFilePath, newFilePath).catch((error: any) => {
+          FileSystemManager.renameFolder(oldFilePath, newFilePath).catch((error: Error) => {
             console.error('Failed to rename folder:', error);
           });
           
@@ -396,7 +396,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         // 只有当文件名真正改变时才重命名
         if (oldFilePath !== newFilePath) {
           // 异步重命名文件
-          FileSystemManager.renameNote(oldFilePath, newFilePath).catch((error: any) => {
+          FileSystemManager.renameNote(oldFilePath, newFilePath).catch((error: Error) => {
             console.error('Failed to rename note file:', error);
           });
           
@@ -567,7 +567,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
     
     case 'LOAD_FILE_SYSTEM_NOTES': {
       // 将文件系统笔记转换为应用笔记格式
-      const convertToNotes = (items: any[], parentId?: string): Record<string, Note> => {
+      const convertToNotes = (items: Note[], parentId?: string): Record<string, Note> => {
         const notes: Record<string, Note> = {};
         
         items.forEach(item => {

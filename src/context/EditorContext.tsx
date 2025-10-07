@@ -3,8 +3,18 @@ import type { ReactNode } from 'react';
 
 // 编辑器上下文类型
 interface EditorContextType {
-  editor: any | null;
-  setEditor: (editor: any | null) => void;
+  editor: {
+    createBlock?: (block: unknown) => void;
+    replaceBlocks?: (blocks: unknown[], newBlocks: unknown[]) => void;
+    getBlock?: (id: string) => unknown;
+    [key: string]: unknown;
+  } | null;
+  setEditor: (editor: {
+    createBlock?: (block: unknown) => void;
+    replaceBlocks?: (blocks: unknown[], newBlocks: unknown[]) => void;
+    getBlock?: (id: string) => unknown;
+    [key: string]: unknown;
+  } | null) => void;
 }
 
 // 创建编辑器上下文
@@ -12,7 +22,12 @@ const EditorContext = createContext<EditorContextType | null>(null);
 
 // 编辑器提供者组件
 export function EditorProvider({ children }: { children: ReactNode }) {
-  const [editor, setEditor] = React.useState<any | null>(null);
+  const [editor, setEditor] = React.useState<{
+    createBlock?: (block: unknown) => void;
+    replaceBlocks?: (blocks: unknown[], newBlocks: unknown[]) => void;
+    getBlock?: (id: string) => unknown;
+    [key: string]: unknown;
+  } | null>(null);
   
   return (
     <EditorContext.Provider value={{ editor, setEditor }}>

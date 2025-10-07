@@ -1,1 +1,0 @@
-https://www.jenkins.io/zh/doc/book/pipeline/syntax/

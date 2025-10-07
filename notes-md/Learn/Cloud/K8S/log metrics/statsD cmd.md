@@ -1,1 +1,0 @@
-https://github.com/statsd/statsd/blob/master/docs/admin_interface.md

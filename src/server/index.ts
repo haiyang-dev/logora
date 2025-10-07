@@ -4,16 +4,25 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import searchEngine from './search.js';
 import multer from 'multer';
-import type { Request, Response } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { createHash } from 'crypto';
+
+// 类型定义
+interface NoteItem {
+  id: string;
+  title: string;
+  isFolder: boolean;
+  filePath: string;
+  updatedAt?: Date;
+  children?: NoteItem[];
+}
 import {
   SERVER_CONFIG,
   CORS_CONFIG,
   FILESYSTEM_CONFIG,
   UPLOAD_CONFIG,
   CACHE_CONFIG,
-  MIME_CONFIG,
-  SECURITY_CONFIG
+  MIME_CONFIG
 } from '../config/server.js';
 
 // 获取当前文件的目录路径
@@ -64,7 +73,7 @@ const upload = multer({
 const app = express();
 const PORT = SERVER_CONFIG.PORT;
 
-app.use((req: Request, res: Response, next: any) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
   if (origin && CORS_CONFIG.ALLOWED_ORIGINS.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
@@ -116,7 +125,7 @@ app.get('/api/notes', (_req: Request, res: Response) => {
   try {
     const notes = getAllNotes(WORKSPACE_DIR);
     res.json(notes);
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to retrieve notes' });
   }
 });
@@ -473,15 +482,15 @@ app.get('/api/search', async (req: Request, res: Response) => {
     if (!query) {
       return res.status(400).json({ error: 'Query parameter is required' });
     }
-    
+
     // 构建索引（如果尚未构建）
     if (searchEngine.getIndexStatus().count === 0) {
       await searchEngine.buildIndex();
     }
-    
+
     const results = searchEngine.search(query);
     res.json(results);
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to search notes' });
   }
 });
@@ -491,7 +500,7 @@ app.post('/api/search/rebuild', async (_req: Request, res: Response) => {
   try {
     await searchEngine.buildIndex();
     res.json({ success: true, message: 'Search index rebuilt successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to rebuild search index' });
   }
 });
@@ -608,7 +617,7 @@ app.post('/api/folders/rename', async (req: Request, res: Response) => {
 
 
 // 递归获取所有笔记文件
-function getAllNotes(dir: string, basePath: string = ''): any[] {
+function getAllNotes(dir: string, basePath: string = ''): NoteItem[] {
   const notes = [];
   const items = fs.readdirSync(dir);
   

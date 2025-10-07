@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run lint)",
+      "Bash(npm run dev)",
+      "Bash(npm run build)",
+      "Bash(npm run preview)",
+      "Bash(tsx:*)",
+      "Bash(npx tsx:*)",
+      "Bash(curl:*)",
+      "Bash(npx tsc:*)",
+      "Bash(node:*)",
+      "Bash(git checkout:*)",
+      "Bash(npm run server)",
+      "Bash(git restore:*)",
+      "Bash(git reset:*)",
+      "Bash(git reflog:*)",
+      "Bash(npx eslint:*)",
+      "Bash(timeout:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

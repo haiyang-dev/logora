@@ -1,4 +1,0 @@
-
-
-![](images/5F9B7D708B0449CD89035AEF8C940B6Bclipboard.png)
-

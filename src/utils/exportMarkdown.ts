@@ -12,14 +12,17 @@ export class ExportManager {
    * @param notes 所有笔记
    * @param editor BlockNote编辑器实例
    */
-  static async exportAllNotesToFolder(notes: Record<string, any>, editor: any): Promise<void> {
+  static async exportAllNotesToFolder(notes: Record<string, import('../types').Note>, editor: {
+    getBlock?: (id: string) => unknown;
+    [key: string]: unknown;
+  }): Promise<void> {
     try {
       // 请求用户选择导出目录
       let exportDirHandle: FileSystemDirectoryHandle;
       try {
-        // @ts-ignore TypeScript可能不识别showDirectoryPicker
+        // @ts-expect-error TypeScript可能不识别showDirectoryPicker
         exportDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-      } catch (error) {
+      } catch {
         console.warn('用户取消了目录选择或浏览器不支持showDirectoryPicker');
         this.progressAlert.show('导出失败', '请选择一个有效的导出目录。注意：此功能需要现代浏览器支持（如Chrome 86+）。', 'error');
         setTimeout(() => this.progressAlert.hide(), 3000);

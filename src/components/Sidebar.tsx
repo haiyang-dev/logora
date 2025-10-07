@@ -14,7 +14,12 @@ interface TreeNode {
 
 interface SidebarProps {
   className?: string;
-  editor?: any;
+  editor?: {
+    createBlock?: (block: any) => void;
+    replaceBlocks?: (blocks: any[], newBlocks: any[]) => void;
+    getBlock?: (id: string) => any;
+    [key: string]: unknown;
+  };
 }
 
 export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
@@ -50,9 +55,9 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
 
   // 构建树形结构 - 修复父子关系匹配逻辑
   const tree = useMemo(() => {
-        const buildTree = (parentId: string | null = null): TreeNode[] => {
+    const buildTree = (parentId: string | null = null): TreeNode[] => {
       // 修复：正确过滤根节点（parentId为null或undefined的节点）
-      let notes = Object.values(state.notes).filter(note => {
+      const notes = Object.values(state.notes).filter(note => {
         // 对于根节点，parentId应该是null或undefined
         if (parentId === null) {
           return (note.parentId === null || note.parentId === undefined);
@@ -270,7 +275,11 @@ export const Sidebar = React.memo(function Sidebar({ editor }: SidebarProps) {
   }, [dispatch]);
 
   // 处理搜索结果点击
-  const handleSearchResultClick = useCallback((searchResult: any) => {
+  const handleSearchResultClick = useCallback((searchResult: {
+    id: string;
+    title: string;
+    snippet?: string;
+  }) => {
     // 找到对应的笔记
     const note = Object.values(state.notes).find(n => n.filePath === searchResult.filePath);
     if (note) {

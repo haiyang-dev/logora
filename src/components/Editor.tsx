@@ -126,7 +126,7 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
       // 如果既没有文件路径也没有本地内容，则设置为空数组
       setInitialContent([]);
     }
-  }, [selectedNote?.id]); // 只有当selectedNote的id变化时才重新加载，避免filePath变化导致的重复加载
+  }, [selectedNote?.id, selectedNote?.filePath, selectedNote?.content]); // 包含所有实际使用的依赖
   
   // 当 initialContent 加载完成并且编辑器准备好后，更新编辑器内容
   useEffect(() => {
@@ -192,7 +192,7 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
         saveContent();
       }, 1000);
     }
-  }, [editor, selectedNote, autoSaveEnabled, dispatch]);
+  }, [editor, selectedNote?.id, selectedNote?.content, autoSaveEnabled, dispatch]);
   
   // 保存内容的函数
   const saveContent = useCallback(async () => {
