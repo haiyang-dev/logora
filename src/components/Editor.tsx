@@ -377,14 +377,8 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
           // 获取最后一个块作为参考点
           const lastBlock = editor.document[editor.document.length - 1];
 
-          // 逐个插入块
-          for (const block of validInitialContent) {
-            try {
-              editor.insertBlocks([block], lastBlock.id, "after");
-            } catch (blockError) {
-              console.error('插入块时发生错误:', blockError, block);
-            }
-          }
+          // 替换所有块
+          editor.replaceBlocks(editor.document, validInitialContent);
         } else {
           editor.replaceBlocks(editor.document, validInitialContent);
         }

@@ -18,7 +18,11 @@
       "Bash(npx eslint:*)",
       "Bash(timeout:*)",
       "Bash(npx vite build:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(tasklist:*)",
+      "Bash(taskkill:*)"
     ],
     "deny": [],
     "ask": []

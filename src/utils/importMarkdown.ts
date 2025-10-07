@@ -617,9 +617,10 @@ export class ImportManager {
           file
         } = fileDataArray[i];
 
-                // 更新进度提示
-        processedCount++;
-        this.progressAlert.update(`正在解析笔记 (${processedCount}/${fileDataArray.length})`, `正在处理: ${fileName}`, 'info');
+      try {
+          // 更新进度提示
+          processedCount++;
+          this.progressAlert.update(`正在解析笔记 (${processedCount}/${fileDataArray.length})`, `正在处理: ${fileName}`, 'info');
 
         // 验证文件内容完整性，防止内容拼接
         if (!rawFileContent || typeof rawFileContent !== 'string') {
@@ -843,7 +844,7 @@ export class ImportManager {
       }
       
       // 验证导入结果的完整性
-      console.log(`[DEBUG] 导入完成验证 - 成功导入 ${successCount} 个笔记`);
+      console.log(`[DEBUG] 导入完成验证 - 成功导入 ${notesToCreate.length} 个笔记`);
       console.log(`[DEBUG] 创建的笔记列表:`, notesToCreate.map(n => ({ title: n.title, path: n.filePath, contentCount: n.content?.length || 0 })));
 
       // 检查是否有内容重复的情况
@@ -865,7 +866,7 @@ export class ImportManager {
 
       // 最终同步验证 - 确保所有操作都已完成且没有竞态条件
       console.log(`[DEBUG] ===== 最终同步验证 =====`);
-      console.log(`[DEBUG] 导入完成验证 - 成功导入 ${successCount} 个笔记`);
+      console.log(`[DEBUG] 导入完成验证 - 成功导入 ${notesToCreate.length} 个笔记`);
       console.log(`[DEBUG] 创建的笔记列表:`, notesToCreate.map(n => ({ title: n.title, path: n.filePath, contentCount: n.content?.length || 0 })));
 
       // 验证导入过程的同步性
@@ -877,28 +878,11 @@ export class ImportManager {
         console.warn(`[WARNING] 同步处理异常: 处理文件数(${totalProcessed}) != 创建笔记数(${totalNotes})`);
       }
 
-      // 检查是否有内容重复的情况
-      const contentHashes = new Map<string, string>();
-      let duplicateCount = 0;
-      for (const note of notesToCreate) {
-        const contentHash = JSON.stringify(note.content);
-        if (contentHashes.has(contentHash)) {
-          console.warn(`[WARNING] 发现重复内容: ${note.title} 与 ${contentHashes.get(contentHash)} 内容相同`);
-          duplicateCount++;
-        } else {
-          contentHashes.set(contentHash, note.title);
-        }
-      }
-
-      if (duplicateCount > 0) {
-        console.warn(`[WARNING] 总共发现 ${duplicateCount} 个笔记有重复内容`);
-      }
-
       console.log(`[DEBUG] ===== 同步导入完成 =====`);
 
       // 显示完成提示
       const originalSkippedCount = markdownFiles.length - notesToImport.length;
-      this.progressAlert.update('导入完成', `✅ 完全同步导入完成！\n成功导入 ${successCount} 个笔记，跳过 ${originalSkippedCount} 个重复文件\n${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹！${duplicateCount > 0 ? `\n⚠️ 检测到 ${duplicateCount} 个重复内容` : ''}`, 'success');
+      this.progressAlert.update('导入完成', `✅ 完全同步导入完成！\n成功导入 ${notesToImport.length} 个笔记，跳过 ${originalSkippedCount} 个重复文件\n${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹！${duplicateCount > 0 ? `\n⚠️ 检测到 ${duplicateCount} 个重复内容` : ''}`, 'success');
       
       // 强制刷新目录树
       // 等待一段时间确保所有操作完成，然后触发状态更新
