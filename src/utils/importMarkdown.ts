@@ -59,14 +59,6 @@ export class ImportManager {
             const subFiles = await this.getFilesFromDirectory(handle as FileSystemDirectoryHandle, nextBasePath);
             files.push(...subFiles);
           }
-        } else if (handle.kind === 'directory') {
-          
-          // 递归处理子文件夹
-          // 使用统一的正斜杠作为路径分隔符
-          // 修复：确保basePath不以/开头，避免生成以/开头的路径
-          const nextBasePath = basePath ? (basePath.startsWith('/') ? `${basePath.substring(1)}/${name}` : `${basePath}/${name}`) : name;
-          const subFiles = await this.getFilesFromDirectory(handle as FileSystemDirectoryHandle, nextBasePath);
-          files.push(...subFiles);
         }
       }
     } catch (error) {

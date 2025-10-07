@@ -28,7 +28,7 @@ export const CORS_CONFIG = {
 export const FILESYSTEM_CONFIG = {
   WORKSPACE_DIR: 'workspace',
   RESOURCES_DIR: '.resources',
-  IMAGES_DIR: '.resources/images',
+  IMAGES_DIR: 'images',
   PUBLIC_DIR: 'public',
   ALLOWED_EXTENSIONS: ['.json'],
   IGNORED_DIRECTORIES: [

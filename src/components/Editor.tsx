@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback, useState } from 'react';
-import { 
-  type Block 
+import {
+  type Block
 } from '@blocknote/core';
 import { BlockNoteView } from '@blocknote/mantine';
 import { useCreateBlockNote } from '@blocknote/react';
@@ -12,6 +12,58 @@ import { ImageUploadManager } from '../utils/imageUpload';
 import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
 import './Editor.css';
+
+// 验证和清理块的函数
+function sanitizeBlocks(blocks: Block[]): Block[] {
+  return blocks.filter(block => {
+    // 确保块有必要的属性
+    if (!block.id || !block.type) {
+      console.warn('跳过无效的块:', block);
+      return false;
+    }
+
+    // 确保有children属性
+    if (!Array.isArray(block.children)) {
+      block.children = [];
+    }
+
+    // 验证特定类型的块
+    switch (block.type) {
+      case 'table':
+        // 表格块需要特殊验证
+        if (!block.content || !block.content.rows || !Array.isArray(block.content.rows)) {
+          console.warn('跳过无效的表格块:', block);
+          return false;
+        }
+        break;
+      case 'paragraph':
+      case 'heading':
+      case 'codeBlock':
+      case 'bulletListItem':
+      case 'numberedListItem':
+      case 'blockquote':
+        // 这些块应该有content数组
+        if (!Array.isArray(block.content)) {
+          block.content = [];
+        }
+        break;
+      case 'image':
+      case 'horizontalRule':
+        // 这些块可以没有content或content为空数组
+        if (!block.content) {
+          block.content = [];
+        }
+        break;
+    }
+
+    // 确保有props对象
+    if (!block.props || typeof block.props !== 'object') {
+      block.props = {};
+    }
+
+    return true;
+  });
+}
 
 interface EditorProps {
   className?: string;
@@ -136,14 +188,30 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
 
     // 确保 initialContent 是有效的数组
     const validInitialContent = Array.isArray(initialContent) && initialContent.length > 0
-      ? initialContent // 直接使用从后端获取的内容
+      ? sanitizeBlocks(initialContent) // 清理和验证块
       : [];
 
     // 只有当编辑器内容为空时才替换内容，避免在已有内容时覆盖
     if (validInitialContent.length > 0) {
       // 设置加载标志，防止触发保存
       isLoadingContentRef.current = true;
-      editor.replaceBlocks(editor.document, validInitialContent);
+      try {
+        editor.replaceBlocks(editor.document, validInitialContent);
+      } catch (error) {
+        console.error('替换块时发生错误:', error);
+        // 如果替换失败，尝试添加单个块
+        try {
+          for (const block of validInitialContent) {
+            try {
+              editor.insertBlocks([block], editor.document.atEnd());
+            } catch (blockError) {
+              console.error('插入单个块时发生错误:', blockError, block);
+            }
+          }
+        } catch (fallbackError) {
+          console.error('备用插入方法也失败:', fallbackError);
+        }
+      }
       // 在下一个事件循环中清除标志，确保replaceBlocks完成后再允许处理变化事件
       setTimeout(() => {
         isLoadingContentRef.current = false;

@@ -595,7 +595,7 @@ export function parseMarkdownToJSON(markdown: string): MarkdownElement[] {
  */
 export function convertJSONToBlocks(elements: MarkdownElement[]): BlockNoteBlock[] {
   const blocks: BlockNoteBlock[] = [];
-  
+
   for (const element of elements) {
     switch (element.type) {
       case 'paragraph':
@@ -611,7 +611,7 @@ export function convertJSONToBlocks(elements: MarkdownElement[]): BlockNoteBlock
           children: []
         });
         break;
-        
+
       case 'heading':
         blocks.push({
           id: uuidv4(),
@@ -642,7 +642,7 @@ export function convertJSONToBlocks(elements: MarkdownElement[]): BlockNoteBlock
           children: []
         });
         break;
-        
+
       case 'bulletListItem':
         blocks.push({
           id: uuidv4(),
@@ -656,7 +656,7 @@ export function convertJSONToBlocks(elements: MarkdownElement[]): BlockNoteBlock
           children: []
         });
         break;
-        
+
       case 'numberedListItem':
         blocks.push({
           id: uuidv4(),
@@ -670,7 +670,7 @@ export function convertJSONToBlocks(elements: MarkdownElement[]): BlockNoteBlock
           children: []
         });
         break;
-        
+
       case 'blockquote':
         blocks.push({
           id: uuidv4(),
@@ -684,7 +684,7 @@ export function convertJSONToBlocks(elements: MarkdownElement[]): BlockNoteBlock
           children: []
         });
         break;
-        
+
       case 'image':
         blocks.push({
           id: uuidv4(),
@@ -698,7 +698,7 @@ export function convertJSONToBlocks(elements: MarkdownElement[]): BlockNoteBlock
           children: []
         });
         break;
-        
+
       case 'horizontalRule':
         blocks.push({
           id: uuidv4(),
