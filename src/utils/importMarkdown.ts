@@ -2,6 +2,7 @@
 import { type Block } from '@blocknote/core';
 import { parseMarkdownToBlocks } from './markdownToBlocks';
 import { ProgressAlert } from './progressAlert';
+import { v4 as uuidv4 } from 'uuid';
 
 export class ImportManager {
   // 使用ProgressAlert实例
@@ -572,7 +573,7 @@ export class ImportManager {
             console.warn(`解析Markdown内容失败，使用空内容:`, parseError);
             // 如果解析失败，创建一个包含原始Markdown内容的段落块
             blocks = [{
-              id: Date.now().toString(),
+              id: uuidv4(),
               type: "paragraph",
               props: {
                 textColor: "default",
