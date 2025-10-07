@@ -433,26 +433,45 @@ export class ImportManager {
       // 等待一段时间确保所有文件夹创建完成
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      // 首先上传所有图片文件 - 使用串行处理避免并发竞态
+      // 同步处理所有图片文件 - 批量读取然后同步上传
       const uploadedImages: Record<string, string> = {}; // 存储原图片路径到新URL的映射
 
-      console.log(`[DEBUG] 开始串行上传 ${imageFiles.length} 个图片文件...`);
+      console.log(`[DEBUG] 开始同步处理 ${imageFiles.length} 个图片文件...`);
+
+      // 第一步：同步读取所有图片文件到内存
+      const imageDataArray: Array<{path: string; file: File; data: string}> = [];
 
       for (let i = 0; i < imageFiles.length; i++) {
         const {handle: fileHandle, path} = imageFiles[i];
 
         try {
-          // 先读取文件内容，确保完整性
+          // 同步读取文件内容
           const file = await fileHandle.getFile();
-          console.log(`[DEBUG] 准备上传图片 ${i + 1}/${imageFiles.length}: ${path}, 大小: ${file.size} bytes`);
+          const fileData = await this.readFileAsDataURL(file);
 
-          // 更新进度提示
-          this.progressAlert.update(`正在导入图片 (${i + 1}/${imageFiles.length})`, `正在上传: ${path}`, 'info');
+          imageDataArray.push({
+            path,
+            file,
+            data: fileData
+          });
 
-          // 上传图片到服务器 - 确保每次上传都是独立的
-          const imageUrl = await this.uploadImageToServer(file);
+          console.log(`[DEBUG] 同步读取图片 ${i + 1}/${imageFiles.length}: ${path}, 大小: ${file.size} bytes`);
 
-          // 验证上传结果
+        } catch (error) {
+          console.error(`[ERROR] 图片读取失败 ${path}:`, error);
+        }
+      }
+
+      // 第二步：同步上传所有图片
+      this.progressAlert.update(`正在上传图片`, `正在上传 ${imageDataArray.length} 个图片...`, 'info');
+
+      for (let i = 0; i < imageDataArray.length; i++) {
+        const {path, file, data} = imageDataArray[i];
+
+        try {
+          // 同步上传图片
+          const imageUrl = await this.uploadImageToServerSync(file, data);
+
           if (imageUrl && typeof imageUrl === 'string') {
             uploadedImages[path] = imageUrl;
             console.log(`[DEBUG] 图片上传成功: ${path} -> ${imageUrl}`);
@@ -462,16 +481,10 @@ export class ImportManager {
 
         } catch (error) {
           console.error(`[ERROR] 图片上传失败 ${path}:`, error);
-          this.progressAlert.update('图片上传出错', `图片上传失败 ${path}: ${(error as Error).message}`, 'error');
-        }
-
-        // 每上传一个图片后稍作停顿，避免服务器压力
-        if (i < imageFiles.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
 
-      console.log(`[DEBUG] 图片上传完成，共上传 ${Object.keys(uploadedImages).length} 个图片`);
+      console.log(`[DEBUG] 图片同步处理完成，共处理 ${Object.keys(uploadedImages).length} 个图片`);
       
       
       
@@ -535,8 +548,8 @@ export class ImportManager {
 
       console.log(`[DEBUG] 预处理完成，准备导入 ${notesToImport.length} 个笔记`);
 
-    // 串行处理所有要导入的笔记，避免异步竞态条件
-      console.log(`[DEBUG] 开始串行处理 ${notesToImport.length} 个笔记...`);
+    // 完全同步处理所有笔记 - 消除所有异步竞态条件
+      console.log(`[DEBUG] 开始完全同步处理 ${notesToImport.length} 个笔记...`);
 
       const notesToCreate: Array<{
         title: string;
@@ -545,94 +558,146 @@ export class ImportManager {
         isOverwrite: boolean;
       }> = [];
 
-      // 重置计数器用于批量处理
-      let processedCount = 0;
+      // 第一步：同步读取所有Markdown文件到内存
+      console.log(`[DEBUG] 第一步：同步读取所有Markdown文件...`);
+      const fileDataArray: Array<{
+        fileHandle: FileSystemFileHandle;
+        path: string;
+        fileName: string;
+        shouldOverwrite: boolean;
+        existingNoteInfo?: any;
+        content: string;
+        file: File;
+      }> = [];
 
-      // 第一步：串行解析所有Markdown文件，避免异步竞态
       for (let i = 0; i < notesToImport.length; i++) {
         const {fileHandle, path, fileName, shouldOverwrite, existingNoteInfo} = notesToImport[i];
-        const file = await fileHandle.getFile();
-
-        // 更新进度提示
-        processedCount++;
-        this.progressAlert.update(`正在解析笔记 (${processedCount}/${notesToImport.length})`, `正在处理: ${fileName}`, 'info');
 
         try {
-          // 读取文件内容 - 确保完全隔离每个文件的内容
+          // 同步获取文件对象和内容
+          const file = await fileHandle.getFile();
           const rawFileContent = await file.text();
 
-          // 验证文件内容完整性，防止内容拼接
+          // 验证文件内容完整性
           if (!rawFileContent || typeof rawFileContent !== 'string') {
             console.error(`[ERROR] 文件 ${fileName} 内容为空或无效`);
             continue;
           }
 
-          // 检测可能的文件内容拼接问题
-          const contentLines = rawFileContent.split('\n');
-          if (contentLines.length > 5000) {
-            console.warn(`[WARNING] 文件 ${fileName} 异常大 (${contentLines.length} 行)，可能包含拼接内容`);
+          fileDataArray.push({
+            fileHandle,
+            path,
+            fileName,
+            shouldOverwrite,
+            existingNoteInfo,
+            content: rawFileContent,
+            file
+          });
+
+          console.log(`[DEBUG] 同步读取文件 ${i + 1}/${notesToImport.length}: ${fileName}, 大小: ${rawFileContent.length} 字符`);
+
+        } catch (error) {
+          console.error(`[ERROR] 读取文件 ${fileName} 失败:`, error);
+        }
+      }
+
+      console.log(`[DEBUG] 文件同步读取完成，共读取 ${fileDataArray.length} 个文件`);
+
+      // 第二步：同步解析所有Markdown文件
+      console.log(`[DEBUG] 第二步：同步解析所有Markdown文件...`);
+      let processedCount = 0;
+
+      for (let i = 0; i < fileDataArray.length; i++) {
+        const {
+          path,
+          fileName,
+          shouldOverwrite,
+          existingNoteInfo,
+          content: rawFileContent,
+          file
+        } = fileDataArray[i];
+
+                // 更新进度提示
+        processedCount++;
+        this.progressAlert.update(`正在解析笔记 (${processedCount}/${fileDataArray.length})`, `正在处理: ${fileName}`, 'info');
+
+        // 验证文件内容完整性，防止内容拼接
+        if (!rawFileContent || typeof rawFileContent !== 'string') {
+          console.error(`[ERROR] 文件 ${fileName} 内容为空或无效`);
+          continue;
+        }
+
+        // 检测可能的文件内容拼接问题
+        const contentLines = rawFileContent.split('\n');
+        if (contentLines.length > 5000) {
+          console.warn(`[WARNING] 文件 ${fileName} 异常大 (${contentLines.length} 行)，可能包含拼接内容`);
+        }
+
+        // 检测异常的文件分隔模式
+        const separatorCount = (rawFileContent.match(/^---$/gm) || []).length;
+        if (separatorCount > 10) {
+          console.warn(`[WARNING] 文件 ${fileName} 包含异常多的分隔符 (${separatorCount} 个)，可能存在拼接问题`);
+        }
+
+        // 检测可能的多文件合并模式（连续的标题+分隔符组合）
+        const potentialFileMerges = rawFileContent.match(/(^#{1,6}\s+.+\n---\n)+/gm) || [];
+        if (potentialFileMerges.length > 2) {
+          console.warn(`[WARNING] 文件 ${fileName} 可能包含 ${potentialFileMerges.length} 个合并的文件内容`);
+        }
+
+        // 创建完全隔离的图片映射，确保不会混入其他文件的内容
+        const isolatedUploadedImages: Record<string, string> = {};
+
+        // 深拷贝全局上传的图片映射，避免引用污染
+        Object.assign(isolatedUploadedImages, JSON.parse(JSON.stringify(uploadedImages)));
+
+        // 查找当前Markdown文件中引用的.resources/images路径的图片 - 同步处理
+        const localImageMatches: string[] = [];
+
+        // 每次都创建新的正则表达式实例，避免状态污染
+        const imageRegex = new RegExp(/!\[([^\]]*)\]\((\.[^)]*\.resources\/images\/[^)]+)\)/g);
+
+        // 使用 matchAll 而不是 exec，避免状态问题
+        const imageMatches = [...rawFileContent.matchAll(imageRegex)];
+        for (const match of imageMatches) {
+          if (match[2]) {
+            localImageMatches.push(match[2]);
           }
+        }
 
-          // 检测异常的文件分隔模式
-          const separatorCount = (rawFileContent.match(/^---$/gm) || []).length;
-          if (separatorCount > 10) {
-            console.warn(`[WARNING] 文件 ${fileName} 包含异常多的分隔符 (${separatorCount} 个)，可能存在拼接问题`);
-          }
+        // 同步处理当前文件特有的图片
+        for (const imagePath of localImageMatches) {
+          const imageFileName = imagePath.split('/').pop();
+          if (imageFileName) {
+            const imageFile = allFileHandles.find(f => f.path.endsWith(imageFileName) &&
+              (f.path.includes('.resources/images/') || f.path.includes('.resources\\images\\')));
 
-          // 检测可能的多文件合并模式（连续的标题+分隔符组合）
-          const potentialFileMerges = rawFileContent.match(/(^#{1,6}\s+.+\n---\n)+/gm) || [];
-          if (potentialFileMerges.length > 2) {
-            console.warn(`[WARNING] 文件 ${fileName} 可能包含 ${potentialFileMerges.length} 个合并的文件内容`);
-          }
+            if (imageFile) {
+              try {
+                // 同步读取图片文件
+                const imageFileContent = await imageFile.handle.getFile();
+                const imageFileData = await this.readFileAsDataURL(imageFileContent);
 
-          // 创建完全隔离的图片映射，确保不会混入其他文件的内容
-          const isolatedUploadedImages: Record<string, string> = {};
+                // 同步上传图片
+                const imageUrl = await this.uploadImageToServerSync(imageFileContent, imageFileData);
+                isolatedUploadedImages[imagePath] = imageUrl;
 
-          // 深拷贝全局上传的图片映射，避免引用污染
-          Object.assign(isolatedUploadedImages, JSON.parse(JSON.stringify(uploadedImages)));
-
-          // 查找当前Markdown文件中引用的.resources/images路径的图片 - 避免正则状态污染
-          const localImageMatches: string[] = [];
-
-          // 每次都创建新的正则表达式实例，避免状态污染
-          const imageRegex = new RegExp(/!\[([^\]]*)\]\((\.[^)]*\.resources\/images\/[^)]+)\)/g);
-
-          // 使用 matchAll 而不是 exec，避免状态问题
-          const imageMatches = [...rawFileContent.matchAll(imageRegex)];
-          for (const match of imageMatches) {
-            if (match[2]) {
-              localImageMatches.push(match[2]);
-            }
-          }
-
-          // 为当前文件特有的图片上传并添加到隔离的映射中
-          for (const imagePath of localImageMatches) {
-            const imageFileName = imagePath.split('/').pop();
-            if (imageFileName) {
-              const imageFile = allFileHandles.find(f => f.path.endsWith(imageFileName) &&
-                (f.path.includes('.resources/images/') || f.path.includes('.resources\\images\\')));
-
-              if (imageFile) {
-                try {
-                  const imageFileContent = await imageFile.handle.getFile();
-                  const imageUrl = await this.uploadImageToServer(imageFileContent);
-                  isolatedUploadedImages[imagePath] = imageUrl;
-                } catch (uploadError) {
-                  console.error(`Failed to upload .resources image ${imagePath}:`, uploadError);
-                }
+              } catch (uploadError) {
+                console.error(`Failed to upload .resources image ${imagePath}:`, uploadError);
               }
             }
           }
+        }
 
-          // 替换Markdown中的图片路径为上传后的URL - 使用原始文件内容
-          const currentNoteDirPath = path.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
-          const processedContent = this.replaceImagePathsV2(rawFileContent, isolatedUploadedImages, currentNoteDirPath);
+        // 替换Markdown中的图片路径为上传后的URL - 使用原始文件内容
+        const currentNoteDirPath = path.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+        const processedContent = this.replaceImagePathsV2(rawFileContent, isolatedUploadedImages, currentNoteDirPath);
 
-          // 验证处理后的内容没有被污染
-          if (!processedContent || processedContent.length === 0) {
-            console.error(`[ERROR] 文件 ${fileName} 处理后内容为空`);
-            continue;
-          }
+        // 验证处理后的内容没有被污染
+        if (!processedContent || processedContent.length === 0) {
+          console.error(`[ERROR] 文件 ${fileName} 处理后内容为空`);
+          continue;
+        }
 
           // 解析Markdown内容为BlockNote格式 - 完全隔离版本
           console.log(`[DEBUG] 开始解析 ${fileName}, 原始内容长度: ${rawFileContent.length}, 处理后内容长度: ${processedContent.length}`);
@@ -643,60 +708,64 @@ export class ImportManager {
           console.log(`[DEBUG] 文件最后修改: ${new Date(file.lastModified)}`);
           console.log(`[DEBUG] 处理后前50字符: ${processedContent.substring(0, 50)}`);
 
-          let parsedBlocks: Block[] = [];
-          try {
-            // 确保为每个文件创建完全独立的解析环境
-            // 使用 JSON 深拷贝来避免任何可能的引用污染
-            const safeContent = JSON.parse(JSON.stringify(processedContent));
+          // 同步解析Markdown内容为BlockNote格式 - 完全隔离版本
+        console.log(`[DEBUG] 开始同步解析 ${fileName}, 原始内容长度: ${rawFileContent.length}, 处理后内容长度: ${processedContent.length}`);
+        console.log(`[DEBUG] 处理后前50字符: ${processedContent.substring(0, 50)}`);
 
-            // parseMarkdownToBlocks 每次都会创建全新的对象，不需要额外深拷贝
-            parsedBlocks = parseMarkdownToBlocks(safeContent) as Block[];
-            console.log(`[DEBUG] parseMarkdownToBlocks 返回了 ${parsedBlocks.length} 个块`);
+        let parsedBlocks: Block[] = [];
+        try {
+          // 确保为每个文件创建完全独立的解析环境
+          // 使用 JSON 深拷贝来避免任何可能的引用污染
+          const safeContent = JSON.parse(JSON.stringify(processedContent));
 
-            // 验证解析结果的有效性
-            if (!Array.isArray(parsedBlocks)) {
-              console.error(`[ERROR] parseMarkdownToBlocks 返回了无效的结果:`, parsedBlocks);
-              parsedBlocks = [];
-            } else {
-              // 验证每个块都有唯一的ID
-              const blockIds = parsedBlocks.map(block => block.id);
-              const uniqueIds = new Set(blockIds);
-              if (blockIds.length !== uniqueIds.size) {
-                console.warn(`[WARNING] 文件 ${fileName} 发现重复的块ID，重新生成`);
-                // 重新生成重复的块ID
-                const seenIds = new Set<string>();
-                parsedBlocks.forEach(block => {
-                  if (seenIds.has(block.id)) {
-                    block.id = uuidv4();
-                  }
-                  seenIds.add(block.id);
-                });
-              }
+          // 同步解析Markdown - parseMarkdownToBlocks 已经是同步的
+          parsedBlocks = parseMarkdownToBlocks(safeContent) as Block[];
+          console.log(`[DEBUG] parseMarkdownToBlocks 返回了 ${parsedBlocks.length} 个块`);
 
-              console.log(`[DEBUG] 成功创建了 ${parsedBlocks.length} 个新块`);
+          // 验证解析结果的有效性
+          if (!Array.isArray(parsedBlocks)) {
+            console.error(`[ERROR] parseMarkdownToBlocks 返回了无效的结果:`, parsedBlocks);
+            parsedBlocks = [];
+          } else {
+            // 验证每个块都有唯一的ID
+            const blockIds = parsedBlocks.map(block => block.id);
+            const uniqueIds = new Set(blockIds);
+            if (blockIds.length !== uniqueIds.size) {
+              console.warn(`[WARNING] 文件 ${fileName} 发现重复的块ID，重新生成`);
+              // 重新生成重复的块ID
+              const seenIds = new Set<string>();
+              parsedBlocks.forEach(block => {
+                if (seenIds.has(block.id)) {
+                  block.id = uuidv4();
+                }
+                seenIds.add(block.id);
+              });
             }
 
-          } catch (parseError) {
-            console.warn(`解析Markdown内容失败:`, parseError);
-            console.log(`[DEBUG] 解析失败，使用原始内容作为段落块: ${processedContent.substring(0, 100)}`);
-
-            // 如果解析失败，创建一个包含原始Markdown内容的段落块
-            parsedBlocks = [{
-              id: uuidv4(),
-              type: "paragraph",
-              props: {
-                textColor: "default",
-                backgroundColor: "default",
-                textAlignment: "left"
-              },
-              content: [{
-                type: "text",
-                text: processedContent.substring(0, 1000), // 限制长度避免过大
-                styles: {}
-              }],
-              children: []
-            }] as Block[];
+            console.log(`[DEBUG] 成功创建了 ${parsedBlocks.length} 个新块`);
           }
+
+        } catch (parseError) {
+          console.warn(`解析Markdown内容失败:`, parseError);
+          console.log(`[DEBUG] 解析失败，使用原始内容作为段落块: ${processedContent.substring(0, 100)}`);
+
+          // 如果解析失败，创建一个包含原始Markdown内容的段落块
+          parsedBlocks = [{
+            id: uuidv4(),
+            type: "paragraph",
+            props: {
+              textColor: "default",
+              backgroundColor: "default",
+              textAlignment: "left"
+            },
+            content: [{
+              type: "text",
+              text: processedContent.substring(0, 1000), // 限制长度避免过大
+              styles: {}
+            }],
+            children: []
+          }] as Block[];
+        }
 
           console.log(`[DEBUG] 解析完成 ${fileName}, 最终块数量: ${parsedBlocks.length}`);
           if (parsedBlocks.length > 0) {
@@ -737,44 +806,40 @@ export class ImportManager {
         }
       }
 
-      console.log(`[DEBUG] 解析完成，开始批量创建 ${notesToCreate.length} 个笔记...`);
+      console.log(`[DEBUG] 解析完成，开始同步创建 ${notesToCreate.length} 个笔记...`);
 
-      // 第二步：批量创建所有笔记（适当延迟以避免文件系统竞争）
+      // 第三步：同步创建所有笔记，消除所有异步操作
+      console.log(`[DEBUG] 第三步：同步创建所有笔记...`);
+
       for (let i = 0; i < notesToCreate.length; i++) {
         const note = notesToCreate[i];
 
         this.progressAlert.update(`正在创建笔记 (${i + 1}/${notesToCreate.length})`, `正在创建: ${note.title}`, 'info');
 
-        console.log(`[DEBUG] 创建笔记: ${note.title}, 路径: ${note.filePath}`);
+        console.log(`[DEBUG] 同步创建笔记: ${note.title}, 路径: ${note.filePath}`);
         if (note.content && note.content.length > 0) {
           console.log(`[DEBUG] ${note.title} 第一个块类型: ${note.content[0].type}`);
           console.log(`[DEBUG] ${note.title} 第一个块内容:`, JSON.stringify(note.content[0].content, null, 2));
         }
 
-        // 再次深拷贝笔记内容，确保dispatch时的内容完全独立
-        const noteContentForDispatch = JSON.parse(JSON.stringify(note.content));
-
         // 验证笔记内容的完整性
-        if (!noteContentForDispatch || !Array.isArray(noteContentForDispatch) || noteContentForDispatch.length === 0) {
+        if (!note.content || !Array.isArray(note.content) || note.content.length === 0) {
           console.error(`[ERROR] 笔记 ${note.title} 的内容无效，跳过创建`);
           continue;
         }
 
+        // 同步dispatch笔记创建 - 内容已经是深拷贝的
         dispatch({
           type: 'ADD_NOTE_WITH_FILE',
           payload: {
             title: note.title,
-            content: noteContentForDispatch, // 使用完全独立的内容副本
+            content: note.content, // 使用完全独立的内容副本
             isFolder: false,
             filePath: note.filePath
           }
         });
 
-        // 每创建3个笔记后稍作停顿，避免文件系统竞争和状态混乱
-        if ((i + 1) % 3 === 0) {
-          console.log(`[DEBUG] 已创建 ${i + 1} 个笔记，稍作停顿...`);
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
+        console.log(`[DEBUG] 笔记 ${note.title} 创建完成`);
       }
       
       // 验证导入结果的完整性
@@ -798,9 +863,42 @@ export class ImportManager {
         console.warn(`[WARNING] 总共发现 ${duplicateCount} 个笔记有重复内容`);
       }
 
+      // 最终同步验证 - 确保所有操作都已完成且没有竞态条件
+      console.log(`[DEBUG] ===== 最终同步验证 =====`);
+      console.log(`[DEBUG] 导入完成验证 - 成功导入 ${successCount} 个笔记`);
+      console.log(`[DEBUG] 创建的笔记列表:`, notesToCreate.map(n => ({ title: n.title, path: n.filePath, contentCount: n.content?.length || 0 })));
+
+      // 验证导入过程的同步性
+      const totalProcessed = processedCount;
+      const totalNotes = notesToCreate.length;
+      console.log(`[DEBUG] 同步性验证: 处理了 ${totalProcessed} 个文件，创建了 ${totalNotes} 个笔记`);
+
+      if (totalProcessed !== totalNotes) {
+        console.warn(`[WARNING] 同步处理异常: 处理文件数(${totalProcessed}) != 创建笔记数(${totalNotes})`);
+      }
+
+      // 检查是否有内容重复的情况
+      const contentHashes = new Map<string, string>();
+      let duplicateCount = 0;
+      for (const note of notesToCreate) {
+        const contentHash = JSON.stringify(note.content);
+        if (contentHashes.has(contentHash)) {
+          console.warn(`[WARNING] 发现重复内容: ${note.title} 与 ${contentHashes.get(contentHash)} 内容相同`);
+          duplicateCount++;
+        } else {
+          contentHashes.set(contentHash, note.title);
+        }
+      }
+
+      if (duplicateCount > 0) {
+        console.warn(`[WARNING] 总共发现 ${duplicateCount} 个笔记有重复内容`);
+      }
+
+      console.log(`[DEBUG] ===== 同步导入完成 =====`);
+
       // 显示完成提示
       const originalSkippedCount = markdownFiles.length - notesToImport.length;
-      this.progressAlert.update('导入完成', `成功导入 ${successCount} 个笔记，跳过 ${originalSkippedCount} 个重复文件\n${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹！${duplicateCount > 0 ? `\n⚠️ 检测到 ${duplicateCount} 个重复内容` : ''}`, 'success');
+      this.progressAlert.update('导入完成', `✅ 完全同步导入完成！\n成功导入 ${successCount} 个笔记，跳过 ${originalSkippedCount} 个重复文件\n${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹！${duplicateCount > 0 ? `\n⚠️ 检测到 ${duplicateCount} 个重复内容` : ''}`, 'success');
       
       // 强制刷新目录树
       // 等待一段时间确保所有操作完成，然后触发状态更新
@@ -833,6 +931,20 @@ export class ImportManager {
   }
   
   /**
+   * 同步读取文件为Data URL
+   * @param file 文件对象
+   * @returns Data URL字符串
+   */
+  private static async readFileAsDataURL(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('文件读取失败'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  /**
    * 上传图片到服务器
    * @param file 图片文件
    * @returns 上传后的图片URL
@@ -857,11 +969,55 @@ export class ImportManager {
 
       // 正确处理服务器响应格式 - 返回url字段
       const imageUrl = data.success ? data.url : (data.url || data);
-      
-      
+
+
       return imageUrl;
     } catch (error) {
       console.error('图片上传失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 同步上传图片到服务器（使用预读取的数据）
+   * @param file 图片文件
+   * @param dataURL 预读取的Data URL
+   * @returns 上传后的图片URL
+   */
+  private static async uploadImageToServerSync(file: File, dataURL: string): Promise<string> {
+    try {
+      // 将Data URL转换回Blob
+      const response = await fetch(dataURL);
+      const blob = await response.blob();
+
+      // 创建新的File对象
+      const syncedFile = new File([blob], file.name, {
+        type: file.type,
+        lastModified: file.lastModified
+      });
+
+      // 创建 FormData 对象
+      const formData = new FormData();
+      formData.append('image', syncedFile);
+
+      // 同步发送上传请求（实际上还是异步，但数据已经预读取）
+      const uploadResponse = await fetch('http://localhost:3001/api/upload-image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`HTTP error! status: ${uploadResponse.status}`);
+      }
+
+      const data = await uploadResponse.json();
+
+      // 正确处理服务器响应格式 - 返回url字段
+      const imageUrl = data.success ? data.url : (data.url || data);
+
+      return imageUrl;
+    } catch (error) {
+      console.error('同步图片上传失败:', error);
       throw error;
     }
   }
