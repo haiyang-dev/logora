@@ -35,10 +35,13 @@ async function loadFromStorage(filePath: string) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     const data = await response.json();
-    return data.content as Block[];
+    return {
+      content: data.content as Block[],
+      lastModified: data.lastModified ? new Date(data.lastModified) : null
+    };
   } catch (error) {
     console.error('从文件系统加载内容失败:', error);
-    return [];
+    return { content: [], lastModified: null };
   }
 }
 
@@ -53,7 +56,10 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
   
   // 防抖定时器引用
   const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-  
+
+  // 跟踪是否正在加载内容，防止加载时触发保存
+  const isLoadingContentRef = React.useRef<boolean>(false);
+
   // 保存状态
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -129,9 +135,13 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
     // 如果笔记有文件路径，则从文件系统加载内容
     if (selectedNote.filePath) {
       loadFromStorage(selectedNote.filePath)
-        .then((content) => {
-          console.log('从后端接收到的内容:', JSON.stringify(content, null, 2));
-          setInitialContent(content || []);
+        .then((data) => {
+          console.log('从后端接收到的内容:', JSON.stringify(data.content, null, 2));
+          setInitialContent(data.content || []);
+          // 使用文件的实际修改时间初始化lastSaved
+          if (data.lastModified) {
+            setLastSaved(data.lastModified);
+          }
         })
         .catch((error) => {
           console.error('加载笔记内容失败:', error);
@@ -140,6 +150,10 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
     } else if (selectedNote.content) {
       // 如果没有文件路径但有本地内容，则使用本地内容
       setInitialContent(selectedNote.content as Block[]);
+      // 使用笔记的updatedAt初始化lastSaved
+      if (selectedNote.updatedAt) {
+        setLastSaved(new Date(selectedNote.updatedAt));
+      }
     } else {
       // 如果既没有文件路径也没有本地内容，则设置为空数组
       setInitialContent([]);
@@ -151,31 +165,40 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
     if (initialContent === "loading" || !editor) {
       return;
     }
-    
+
     console.log('更新编辑器内容', initialContent);
     // 确保 initialContent 是有效的数组
-    const validInitialContent = Array.isArray(initialContent) && initialContent.length > 0 
+    const validInitialContent = Array.isArray(initialContent) && initialContent.length > 0
       ? initialContent // 直接使用从后端获取的内容
       : [];
-    
+
     // 只有当编辑器内容为空时才替换内容，避免在已有内容时覆盖
     if (validInitialContent.length > 0) {
       console.log('替换编辑器内容');
+      // 设置加载标志，防止触发保存
+      isLoadingContentRef.current = true;
       editor.replaceBlocks(editor.document, validInitialContent);
+      // 在下一个事件循环中清除标志，确保replaceBlocks完成后再允许处理变化事件
+      setTimeout(() => {
+        isLoadingContentRef.current = false;
+      }, 0);
     }
   }, [initialContent, editor, selectedNote?.id]);
   
   // 处理内容变化
   const handleContentChange = useCallback(() => {
     if (!editor || !selectedNote || selectedNote.isFolder) return;
-    
+
+    // 如果正在加载内容，不处理内容变化事件
+    if (isLoadingContentRef.current) return;
+
     // 获取当前编辑器内容
     const currentContent = editor.document;
-    
+
     // 检查内容是否真正发生变化（只比较当前选中笔记的内容）
     const previousContent = selectedNote.content || [];
     const hasContentChanged = JSON.stringify(previousContent) !== JSON.stringify(currentContent);
-    
+
     // 只有当内容真正发生变化时才更新状态
     if (hasContentChanged) {
       // 直接更新本地状态
@@ -190,14 +213,14 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
         },
       });
     }
-    
+
     // 如果启用了自动保存，则执行自动保存逻辑
     if (autoSaveEnabled && hasContentChanged) {
       // 清除之前的防抖定时器
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
-      
+
       // 设置新的防抖定时器
       debounceTimerRef.current = setTimeout(() => {
         saveContent();

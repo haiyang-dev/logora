@@ -224,8 +224,14 @@ app.get('/api/notes/:filePath', async (req: Request, res: Response) => {
       console.log('找到JSON文件，直接加载编辑器状态');
       const jsonContent = fs.readFileSync(fullPath, { encoding: 'utf8' });
       const blocks = JSON.parse(jsonContent);
-      res.json({ 
-        content: blocks
+
+      // 获取文件的最后修改时间
+      const stats = fs.statSync(fullPath);
+      const lastModified = stats.mtime;
+
+      res.json({
+        content: blocks,
+        lastModified: lastModified.toISOString() // 返回ISO格式的修改时间
       });
       return;
     }
