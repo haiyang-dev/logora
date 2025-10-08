@@ -1,0 +1,15 @@
+{
+  "watch": ["src/server"],
+  "ext": "ts,json",
+  "ignore": [
+    "src/server/**/*.test.ts",
+    "src/server/**/*.spec.ts",
+    "workspace/**/*",
+    "src/client/**/*",
+    ".git",
+    "node_modules",
+    "dist",
+    "build"
+  ],
+  "exec": "node --import tsx/esm src/server/index.ts"
+}
