@@ -397,7 +397,7 @@ export class ImportManager {
       }
       
       // 显示导入进度提示
-      this.progressAlert.show('正在导入', `正在导入 ${markdownFiles.length} 个笔记, ${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹...`, 'info');
+      this.progressAlert.show('正在导入', `正在导入 ${markdownFiles.length} 个笔记...`, 'info');
       
       // 按深度排序文件夹路径，确保父级文件夹先创建
       const sortedFolderPaths = [...allFolderPaths].sort((a, b) => {
@@ -462,8 +462,8 @@ export class ImportManager {
         }
       }
 
-      // 第二步：同步上传所有图片
-      this.progressAlert.update(`正在上传图片`, `正在上传 ${imageDataArray.length} 个图片...`, 'info');
+      // 第二步：处理资源文件
+      this.progressAlert.update(`正在处理资源文件`, `正在处理 ${imageDataArray.length} 个资源文件...`, 'info');
 
       for (let i = 0; i < imageDataArray.length; i++) {
         const {path, file, data} = imageDataArray[i];
@@ -882,7 +882,7 @@ export class ImportManager {
 
       // 显示完成提示
       const originalSkippedCount = markdownFiles.length - notesToImport.length;
-      this.progressAlert.update('导入完成', `✅ 完全同步导入完成！\n成功导入 ${notesToImport.length} 个笔记，跳过 ${originalSkippedCount} 个重复文件\n${imageFiles.length} 个图片和 ${allFolderPaths.length} 个文件夹！${duplicateCount > 0 ? `\n⚠️ 检测到 ${duplicateCount} 个重复内容` : ''}`, 'success');
+      this.progressAlert.update('导入完成', `✅ 导入完成！\n成功导入 ${notesToImport.length} 个笔记，跳过 ${originalSkippedCount} 个重复文件${duplicateCount > 0 ? `\n⚠️ 检测到 ${duplicateCount} 个重复内容` : ''}`, 'success');
       
       // 强制刷新目录树
       // 等待一段时间确保所有操作完成，然后触发状态更新

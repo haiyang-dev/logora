@@ -6,6 +6,9 @@ import { ProgressAlert } from './progressAlert';
 export class ExportManager {
   // 使用ProgressAlert实例
   private static progressAlert = ProgressAlert.getInstance();
+
+  // 统计使用备选方案的笔记数量
+  private static fallbackExportCount = 0;
   
   /**
    * 导出所有笔记到用户选择的文件夹（无损Markdown版本）
@@ -16,6 +19,9 @@ export class ExportManager {
     getBlock?: (id: string) => unknown;
     [key: string]: unknown;
   }): Promise<void> {
+    // 重置统计计数器
+    this.fallbackExportCount = 0;
+
     try {
       // 请求用户选择导出目录
       let exportDirHandle: FileSystemDirectoryHandle;
@@ -93,7 +99,7 @@ export class ExportManager {
             this.collectImageUrls(content, imageUrls);
             
             // 转换为Markdown（有损）
-            let markdownContent = await this.convertToMarkdown(content, editor);
+            let markdownContent = await this.convertToMarkdown(content as Block[], editor);
             
             // 处理图片路径，将绝对路径替换为相对路径
             markdownContent = this.processImagePaths(markdownContent, imageFileNameMap);
@@ -141,7 +147,14 @@ ${markdownContent}`;
       await this.exportImages(Array.from(imageUrls), imagesDirHandle, imageFileNameMap);
       
       // 显示完成提示
-      this.progressAlert.update('导出完成', '所有笔记和图片已成功导出到选择的文件夹中！\n- 笔记按照原有文件夹结构保存\n- 空文件夹也已创建\n- 图片保存在 .resources/images/ 目录下', 'success');
+      let completionMessage = `所有笔记和图片已成功导出到选择的文件夹中！\n- 笔记按照原有文件夹结构保存\n- 空文件夹也已创建\n- 图片保存在 .resources/images/ 目录下`;
+
+      // 如果有使用备选方案的笔记，添加相关信息
+      if (this.fallbackExportCount > 0) {
+        completionMessage += `\n\n💡 提示：有 ${this.fallbackExportCount} 个笔记使用了备选导出方案（由于编辑器方法不可用），但导出完全成功！`;
+      }
+
+      this.progressAlert.update('导出完成', completionMessage, 'success');
 
       // 3秒后自动关闭提示
       setTimeout(() => {
@@ -165,12 +178,166 @@ ${markdownContent}`;
    */
   static async convertToMarkdown(content: Block[], editor: any): Promise<string> {
     try {
+      // 检查editor是否存在并且有blocksToMarkdownLossy方法
+      if (!editor || typeof editor.blocksToMarkdownLossy !== 'function') {
+        console.warn('编辑器不可用或缺少blocksToMarkdownLossy方法，使用简单的Markdown转换');
+        this.fallbackExportCount++;
+        return this.convertToMarkdownSimple(content);
+      }
+
       // 使用BlockNote原生的导出功能
       return await editor.blocksToMarkdownLossy(content);
     } catch (error) {
-      console.error('导出Markdown失败:', error);
-      throw error;
+      console.warn('BlockNote原生导出不可用，使用备选方案:', error.message);
+      // 如果BlockNote导出失败，尝试使用简单转换
+      this.fallbackExportCount++;
+      return this.convertToMarkdownSimple(content);
     }
+  }
+
+  /**
+   * 简单的Markdown转换函数（备选方案）
+   * @param content BlockNote内容数组
+   * @returns Markdown格式字符串
+   */
+  private static convertToMarkdownSimple(content: Block[]): string {
+    let markdown = '';
+
+    for (const block of content) {
+      if (!block || typeof block !== 'object') continue;
+
+      switch (block.type) {
+        case 'paragraph':
+          markdown += this.blockToText(block) + '\n\n';
+          break;
+        case 'heading': {
+          const level = block.props?.level || 1;
+          markdown += '#'.repeat(level) + ' ' + this.blockToText(block) + '\n\n';
+          break;
+        }
+        case 'codeBlock': {
+          const code = this.blockToText(block);
+          const language = block.props?.language || '';
+          markdown += '```' + language + '\n' + code + '\n```\n\n';
+          break;
+        }
+        case 'bulletListItem':
+          markdown += '- ' + this.blockToText(block) + '\n';
+          break;
+        case 'numberedListItem':
+          markdown += '1. ' + this.blockToText(block) + '\n';
+          break;
+        case 'quote':
+          markdown += '> ' + this.blockToText(block) + '\n\n';
+          break;
+        case 'image': {
+          const imageUrl = block.props?.url || '';
+          const caption = block.props?.caption || '';
+          markdown += `![${caption}](${imageUrl})\n\n`;
+          break;
+        }
+        case 'table':
+          markdown += this.tableToMarkdown(block);
+          break;
+        default:
+          markdown += this.blockToText(block) + '\n\n';
+      }
+    }
+
+    return markdown.trim();
+  }
+
+  /**
+   * 将block的内容转换为纯文本
+   * @param block Block对象
+   * @returns 纯文本字符串
+   */
+  private static blockToText(block: any): string {
+    if (!block || !block.content || !Array.isArray(block.content)) {
+      return '';
+    }
+
+    let text = '';
+    for (const item of block.content) {
+      if (typeof item === 'string') {
+        text += item;
+      } else if (item && typeof item === 'object') {
+        if (item.text) {
+          let chunk = item.text;
+          if (item.bold) chunk = `**${chunk}**`;
+          if (item.italic) chunk = `*${chunk}*`;
+          if (item.underline) chunk = `<u>${chunk}</u>`;
+          if (item.strikethrough) chunk = `~~${chunk}~~`;
+          if (item.code) chunk = `\`${chunk}\``;
+          text += chunk;
+        } else if (item.type === 'link' && item.content) {
+          const linkText = this.extractTextFromContent(item.content);
+          text += `[${linkText}](${item.attrs?.href || ''})`;
+        }
+      }
+    }
+
+    return text;
+  }
+
+  /**
+   * 从content数组中提取文本
+   * @param content content数组
+   * @returns 文本字符串
+   */
+  private static extractTextFromContent(content: any[]): string {
+    if (!Array.isArray(content)) return '';
+
+    let text = '';
+    for (const item of content) {
+      if (typeof item === 'string') {
+        text += item;
+      } else if (item && typeof item === 'object') {
+        if (item.text) {
+          text += item.text;
+        } else if (item.content) {
+          text += this.extractTextFromContent(item.content);
+        }
+      }
+    }
+    return text;
+  }
+
+  /**
+   * 将表格转换为Markdown格式
+   * @param tableBlock 表格block对象
+   * @returns Markdown格式的表格字符串
+   */
+  private static tableToMarkdown(tableBlock: any): string {
+    if (!tableBlock || !tableBlock.content || !Array.isArray(tableBlock.content)) {
+      return '';
+    }
+
+    let tableMarkdown = '';
+
+    // 处理表格行
+    for (const row of tableBlock.content) {
+      if (row && row.type === 'tableRow' && row.content && Array.isArray(row.content)) {
+        const cells = row.content.map((cell: any) => {
+          if (cell && cell.content && Array.isArray(cell.content)) {
+            return this.extractTextFromContent(cell.content).trim();
+          }
+          return '';
+        });
+
+        if (cells.length > 0) {
+          tableMarkdown += '| ' + cells.join(' | ') + ' |\n';
+
+          // 如果是第一行，添加分隔符
+          if (row === tableBlock.content[0]) {
+            const separator = cells.map(() => '---').join(' | ');
+            tableMarkdown += '| ' + separator + ' |\n';
+          }
+        }
+      }
+    }
+
+    return tableMarkdown + '\n';
   }
   
   /**

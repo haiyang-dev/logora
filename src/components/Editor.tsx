@@ -281,8 +281,8 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
   // 防抖定时器引用
   const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  // 跟踪是否正在加载内容，防止加载时触发保存
-  const isLoadingContentRef = React.useRef<boolean>(false);
+  // 标记是否正在设置初始内容，防止触发保存
+  const isSettingContentRef = React.useRef(false);
 
   // 保存状态
   const [isSaving, setIsSaving] = useState(false);
@@ -305,8 +305,8 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
       }
     },
     initialContent: undefined
-  });
-  
+  }); // 正常的依赖数组
+
   // 设置编辑器实例到上下文
   useEffect(() => {
     setEditor(editor);
@@ -319,13 +319,13 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
   useEffect(() => {
     // 重置初始内容状态为loading
     setInitialContent("loading");
-    
+
     // 只处理非文件夹的笔记
     if (!selectedNote || selectedNote.isFolder) {
       setInitialContent(undefined);
       return;
     }
-    
+
     // 如果笔记有文件路径，则从文件系统加载内容
     if (selectedNote.filePath) {
       loadFromStorage(selectedNote.filePath)
@@ -351,7 +351,7 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
       // 如果既没有文件路径也没有本地内容，则设置为空数组
       setInitialContent([]);
     }
-  }, [selectedNote?.id, selectedNote?.filePath, selectedNote?.content]); // 包含所有实际使用的依赖
+  }, [selectedNote?.id, selectedNote?.filePath]); // 移除selectedNote?.content避免无限循环
   
   // 当 initialContent 加载完成并且编辑器准备好后，更新编辑器内容
   useEffect(() => {
@@ -359,43 +359,20 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
       return;
     }
 
+    console.log('更新编辑器内容', initialContent);
     // 确保 initialContent 是有效的数组
     const validInitialContent = Array.isArray(initialContent) && initialContent.length > 0
-      ? sanitizeBlocks(initialContent) // 清理和验证块
+      ? initialContent // 直接使用从后端获取的内容
       : [];
 
-    
     // 只有当编辑器内容为空时才替换内容，避免在已有内容时覆盖
     if (validInitialContent.length > 0) {
-      // 设置加载标志，防止触发保存
-      isLoadingContentRef.current = true;
-      try {
-        // 检查编辑器是否已经有内容
-        const hasExistingContent = editor.document && editor.document.length > 0;
-
-        if (hasExistingContent) {
-          // 获取最后一个块作为参考点
-          const lastBlock = editor.document[editor.document.length - 1];
-
-          // 替换所有块
-          editor.replaceBlocks(editor.document, validInitialContent);
-        } else {
-          editor.replaceBlocks(editor.document, validInitialContent);
-        }
-      } catch (error) {
-        console.error('设置内容时发生错误:', error);
-        // 备用方案：尝试使用transact
-        try {
-          editor.transact((tr) => {
-            // 这里可以添加更底层的操作
-          });
-        } catch (transactError) {
-          console.error('transaction也失败:', transactError);
-        }
-      }
-      // 在下一个事件循环中清除标志，确保replaceBlocks完成后再允许处理变化事件
+      console.log('替换编辑器内容');
+      isSettingContentRef.current = true;
+      editor.replaceBlocks(editor.document, validInitialContent);
+      // 在下一个事件循环中清除标志
       setTimeout(() => {
-        isLoadingContentRef.current = false;
+        isSettingContentRef.current = false;
       }, 0);
     }
   }, [initialContent, editor, selectedNote?.id]);
@@ -404,8 +381,8 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
   const handleContentChange = useCallback(() => {
     if (!editor || !selectedNote || selectedNote.isFolder) return;
 
-    // 如果正在加载内容，不处理内容变化事件
-    if (isLoadingContentRef.current) return;
+    // 如果正在设置初始内容，不处理内容变化
+    if (isSettingContentRef.current) return;
 
     // 获取当前编辑器内容
     const currentContent = editor.document;
@@ -491,7 +468,7 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
         saveContent();
       }
     };
-    
+
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
@@ -625,10 +602,13 @@ export const Editor = React.memo(function Editor({ className }: EditorProps) {
           </div>
           
           <div className="editor-content">
-            <BlockNoteView
-              editor={editor}
-              onChange={handleContentChange}
-            />
+            {selectedNote && (
+              <BlockNoteView
+                key={`editor-${selectedNote.id}`}
+                editor={editor}
+                onChange={handleContentChange}
+              />
+            )}
           </div>
         </>
       )}
